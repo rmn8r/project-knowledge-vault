@@ -1,0 +1,28 @@
+{
+  "_comment": "Starter Obsidian graph color groups. Merge the colorGroups array into <vault>/.obsidian/graph.json (preserve the user's other settings) and set collapse-color-groups=false. Discipline (property) queries first, folder-path fallbacks last. Adapt discipline names to the project.",
+  "collapse-color-groups": false,
+  "showTags": false,
+  "colorGroups": [
+    {"query": "[\"discipline\":\"Mechanical\"]", "color": {"a": 1, "rgb": 4886754}},
+    {"query": "[\"discipline\":\"Electrical\"]", "color": {"a": 1, "rgb": 16098851}},
+    {"query": "[\"discipline\":\"Plumbing\"]", "color": {"a": 1, "rgb": 1556155}},
+    {"query": "[\"discipline\":\"Fire Protection\"]", "color": {"a": 1, "rgb": 15423319}},
+    {"query": "[\"discipline\":\"Structural\"]", "color": {"a": 1, "rgb": 9133628}},
+    {"query": "[\"discipline\":\"Architectural\"]", "color": {"a": 1, "rgb": 2604641}},
+    {"query": "[\"discipline\":\"Civil\"]", "color": {"a": 1, "rgb": 13214247}},
+    {"query": "[\"discipline\":\"Landscape\"]", "color": {"a": 1, "rgb": 7327127}},
+    {"query": "[\"discipline\":\"Technology\"]", "color": {"a": 1, "rgb": 10178016}},
+    {"query": "[\"discipline\":\"Audiovisual\"]", "color": {"a": 1, "rgb": 14249177}},
+    {"query": "[\"discipline\":\"Security\"]", "color": {"a": 1, "rgb": 11680328}},
+    {"query": "[\"discipline\":\"Integrated Automation\"]", "color": {"a": 1, "rgb": 42662}},
+    {"query": "[\"discipline\":\"Lighting\"]", "color": {"a": 1, "rgb": 15912524}},
+    {"query": "path:\"07 - Issues\"", "color": {"a": 1, "rgb": 14039660}},
+    {"query": "path:\"06 - Documents\"", "color": {"a": 1, "rgb": 10534070}},
+    {"query": "path:\"01 - Project\"", "color": {"a": 1, "rgb": 14775125}},
+    {"query": "path:\"05 - Spaces\"", "color": {"a": 1, "rgb": 5688562}},
+    {"query": "path:\"00 - Home\" OR path:\"README\"", "color": {"a": 1, "rgb": 15254855}},
+    {"query": "path:\"04 - Equipment\"", "color": {"a": 1, "rgb": 15104298}},
+    {"query": "path:\"03 - Systems\"", "color": {"a": 1, "rgb": 10181046}},
+    {"query": "path:\"02 - Disciplines\"", "color": {"a": 1, "rgb": 3066993}}
+  ]
+}

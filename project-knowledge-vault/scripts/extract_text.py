@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""Batch-extract text from a project document folder into a scratch dir.
+
+Usage:  python extract_text.py <source_dir> <out_dir>
+
+Handles PDF (pdftotext), XLSX (openpyxl), PPTX (slide XML), CSV/TXT, and .msg (strings).
+Writes one <name>.txt per source and an INVENTORY.md (file list + sizes + PDF page counts).
+Text is *working data* for building the vault, not part of the vault itself.
+"""
+import os, sys, re, subprocess, zipfile, shutil
+
+def sh(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+def pdf_pages(path):
+    r = sh(["pdfinfo", path])
+    m = re.search(r"Pages:\s+(\d+)", r.stdout)
+    return int(m.group(1)) if m else None
+
+def extract_pdf(path, out):
+    if shutil.which("pdftotext"):
+        sh(["pdftotext", "-layout", path, out])
+        return os.path.exists(out)
+    try:
+        from pypdf import PdfReader
+        r = PdfReader(path, strict=False)
+        with open(out, "w", encoding="utf-8") as f:
+            for i, pg in enumerate(r.pages):
+                f.write(f"\n\n===== PAGE {i+1} =====\n")
+                f.write(pg.extract_text() or "")
+        return True
+    except Exception as e:
+        print("  pdf error:", e); return False
+
+def extract_xlsx(path, out):
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(path, data_only=True)
+        with open(out, "w", encoding="utf-8") as f:
+            for ws in wb.worksheets:
+                f.write(f"\n## Sheet: {ws.title}\n")
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c) for c in row if c is not None and str(c).strip()]
+                    if cells: f.write(" | ".join(cells) + "\n")
+        return True
+    except Exception as e:
+        print("  xlsx error (need openpyxl?):", e); return False
+
+def extract_pptx(path, out):
+    try:
+        z = zipfile.ZipFile(path)
+        slides = sorted([n for n in z.namelist() if re.match(r"ppt/slides/slide\d+\.xml$", n)],
+                        key=lambda x: int(re.search(r"(\d+)", x).group()))
+        img_only = 0
+        with open(out, "w", encoding="utf-8") as f:
+            for i, s in enumerate(slides, 1):
+                xml = z.read(s).decode("utf-8", "ignore")
+                texts = [t.strip() for t in re.findall(r"<a:t>(.*?)</a:t>", xml, re.S) if t.strip()]
+                if not texts: img_only += 1
+                f.write(f"\n===== SLIDE {i} =====\n" + " ".join(texts) + "\n")
+        if img_only:
+            print(f"  note: {img_only}/{len(slides)} slides have no text (image/graphic slides)")
+        return True
+    except Exception as e:
+        print("  pptx error:", e); return False
+
+def extract_msg(path, out):
+    a = sh(["strings", "-e", "l", "-n", "8", path]).stdout
+    b = sh(["strings", "-n", "6", path]).stdout
+    with open(out, "w", encoding="utf-8") as f:
+        f.write("=== UTF-16 strings ===\n" + a + "\n=== ASCII strings ===\n" + b)
+    return True
+
+def safe(name):
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+
+def main():
+    if len(sys.argv) < 3:
+        print(__doc__); sys.exit(1)
+    src, out = sys.argv[1], sys.argv[2]
+    os.makedirs(out, exist_ok=True)
+    inv = []
+    for root, _, files in os.walk(src):
+        for fn in sorted(files):
+            p = os.path.join(root, fn)
+            ext = fn.lower().rsplit(".", 1)[-1] if "." in fn else ""
+            rel = os.path.relpath(p, src)
+            size = os.path.getsize(p) // 1024
+            base = safe(os.path.splitext(rel.replace(os.sep, "__"))[0])
+            txt = os.path.join(out, base + ".txt")
+            pages = ""
+            ok = False
+            if ext == "pdf":
+                n = pdf_pages(p); pages = f"{n} pp" if n else ""
+                ok = extract_pdf(p, txt)
+            elif ext in ("xlsx", "xlsm"): ok = extract_xlsx(p, txt)
+            elif ext == "pptx": ok = extract_pptx(p, txt)
+            elif ext in ("csv", "tsv", "txt", "md"):
+                try: shutil.copy(p, txt); ok = True
+                except Exception as e: print("  copy error:", e)
+            elif ext == "msg": ok = extract_msg(p, txt)
+            else:
+                inv.append((rel, f"{size} KB", pages, "skipped (unsupported)")); continue
+            inv.append((rel, f"{size} KB", pages, "ok" if ok else "FAILED"))
+            print(f"{'ok ' if ok else 'ERR'} {rel} ({size} KB) {pages}")
+    with open(os.path.join(out, "INVENTORY.md"), "w", encoding="utf-8") as f:
+        f.write("# Source Inventory\n\n| File | Size | Pages | Extract |\n|---|---|---|---|\n")
+        for rel, size, pages, status in inv:
+            f.write(f"| {rel} | {size} | {pages} | {status} |\n")
+    print(f"\nInventory: {len(inv)} files -> {os.path.join(out,'INVENTORY.md')}")
+
+if __name__ == "__main__":
+    main()
