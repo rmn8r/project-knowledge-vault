@@ -1,6 +1,6 @@
 ---
 name: "project-knowledge-vault"
-description: "Turn a folder of project documents (drawings, specs, schedules, reports, emails, decks) into a linked Obsidian knowledge-base vault, then KEEP it alive as the project chat continues. Use to \"set up a new project / build a vault / review & organize these files / index a construction or engineering project,\" to answer questions from a document set, to integrate newly added files, or to log findings/decisions mid-conversation. Also keeps generated deliverables organized in topic subfolders. Construction/AEC is the primary use case but the workflow is domain-agnostic."
+description: "Turn a folder of project documents (drawings, specs, schedules, reports, emails, decks) into a linked Obsidian knowledge-base vault, then KEEP it alive as the project chat continues. Use to \"set up a new project / build a vault / review & organize these files / index a construction or engineering project,\" to answer questions from a document set, to integrate newly added files, or to log findings/decisions mid-conversation. Also keeps generated deliverables organized in topic subfolders and indexed with a synopsis of their contents. Construction/AEC is the primary use case but the workflow is domain-agnostic."
 ---
 
 # Project Knowledge Vault
@@ -17,7 +17,7 @@ Output is a plain folder of `.md` files with `[[wikilinks]]` — opens in Obsidi
 - **Everything is cross-linked and all links resolve.** Every hub indexes its children; every note is reachable ≥2 ways; there are **no orphans**.
 - Anything ambiguous or contradictory is captured in a register, not silently dropped.
 - A **project memory** (`CLAUDE.md` at the project root) and a **glossary** let the next session — or the next person — extend the vault instead of rebuilding it.
-- Generated deliverables are **organized into topic subfolders** (not dumped in the project root) and indexed.
+- Generated deliverables are **organized into topic subfolders** (not dumped in the project root) and indexed **with a synopsis of their contents** — the vault knows what's inside each report/workbook/dashboard, not just where it lives.
 
 ---
 ## Invocation & modes
@@ -107,7 +107,7 @@ Working context for future sessions. This folder is the shared project root; pat
 
 ## Source documents (same shared folder)
 - Drawings/specs: `…/`  · Change orders/financials: `…/` · Schedule/baselines: `…/` · Submittals/subcontracts: `…/`
-- Generated deliverables are filed into **topic subfolders** (below), never the project root; the index of every output + its path is `06 - Documents/Generated Deliverables & Reports.md`.
+- Generated deliverables are filed into **topic subfolders** (below), never the project root; `06 - Documents/Generated Deliverables & Reports.md` indexes every output — path **plus a synopsis of its contents** (structure + headline figures as-of a date), with a companion `<Deliverable> (contents).md` note for substantial workbooks/dashboards.
 
 ## Deliverable folders (keep the root clean)
 Save each output into the matching topic subfolder; the root holds only `CLAUDE.md`. Map (adapt names to the project):
@@ -123,8 +123,16 @@ Files here are cloud-synced; some are cloud-only placeholders ("dehydrated") tha
 Also capture project shorthand in `01 - Project/Glossary & Acronyms.md` (acronyms, nicknames, codenames, vendor↔scope) so the vault decodes internal language for someone new.
 
 ---
-## Generated deliverables (index them)
-The vault is the single source of truth for spreadsheets/reports the team asks for — generate them **from the vault's notes/registers**, **file each into the topic subfolder it belongs to** (see the folder map in the project `CLAUDE.md` — Financial/, Schedule/, the Cx/QA hub and its subfolders, OFCI/, Markups/, Team/, …), **never the project root**; if nothing fits, **create a new sensibly-named subfolder**. Use the right output skill for fidelity (**`xlsx`** spreadsheets, **`docx`** reports/letters, **`pdf`** PDFs). Then log each in a **`06 - Documents/Generated Deliverables & Reports.md`** index note (deliverable · **relative path incl. subfolder** · date · source note it derives from), keep a short **folder map** at the top of that note, and link it from `00 - Home`. When files get reorganized, refresh the paths + folder map here and in the project `CLAUDE.md`. Common ones: phased construction schedule, buyout log by CSI division, owner scope-clarifications export, testing/commissioning matrix, equipment/submittal/long-lead logs, status/backlog reports. Flag draft/DD-stage basis; leave cost/vendor/date fields for the team.
+## Generated deliverables (index them + capture their contents)
+The vault is the single source of truth for spreadsheets/reports/dashboards the team asks for — generate them **from the vault's notes/registers**, **file each into the topic subfolder it belongs to** (see the folder map in the project `CLAUDE.md` — Financial/, Schedule/, the Cx/QA hub and its subfolders, OFCI/, Markups/, Team/, …), **never the project root**; if nothing fits, **create a new sensibly-named subfolder**. Use the right output skill for fidelity (**`xlsx`** spreadsheets, **`docx`** reports/letters, **`pdf`** PDFs).
+
+**Log that it exists.** Add a row to the **`06 - Documents/Generated Deliverables & Reports.md`** index note (deliverable · **relative path incl. subfolder** · date · source note it derives from), keep a short **folder map** at the top of that note, and link it from `00 - Home`. When files get reorganized, refresh the paths + folder map here and in the project `CLAUDE.md`.
+
+**Capture what's inside it — a path is not enough.** The vault must know each generated file's **contents**, not just that it exists, so the team can answer "what did that exposure log show / which equipment is on that rollup / what's the headline number" from the vault *without reopening the file*. For every deliverable, record a **synopsis**: purpose · **structure** (tabs/sheets · key columns/sections) · **headline figures/counts as-of a date** (totals, status splits, top items — whatever the file's point is) · how it's **derived** · how it's **refreshed** (source export, parser, cadence). For a one-off table the synopsis can live in the index row; for a **substantial deliverable** (multi-tab workbook, HTML dashboard, recurring log) create a small **companion note** in `06 - Documents` named `<Deliverable> (contents).md` holding the synopsis and **back-links to the source/equipment/register notes it draws from and feeds**, then link it from the index row. Treat the companion note like any hub — it must not be an orphan.
+- **Findings flow into the vault, not just the file.** Any material fact surfaced while building a deliverable (a new value, a conflict, a resolved gap) is logged into the right note/register per the **Living-vault** rules — the deliverable is an output, the vault is the record.
+- **Keep the synopsis live.** When a deliverable is regenerated/refreshed, update its headline figures + as-of date (and the structure line if columns/tabs changed) and add a dated `Vault Change Log` entry.
+
+Common ones: phased construction schedule, buyout log by CSI division, owner scope-clarifications export, testing/commissioning matrix, equipment/submittal/long-lead logs, status/backlog reports. Flag draft/DD-stage basis; leave cost/vendor/date fields for the team.
 
 ---
 ## Cloud-synced files (dehydration) — operational rule
@@ -235,6 +243,7 @@ After running either script, re-run the audit and confirm 0 unresolved / 0 orpha
 
 ## Principles
 - **Organize outputs, don't dump them.** Every generated file lands in the topic subfolder that fits (create one if needed); the project root stays clean; the deliverables index + folder map stay current.
+- **The vault knows its outputs' contents.** Index every generated report/workbook/dashboard with a synopsis of what's inside (structure + headline figures as-of a date), not just its path — so questions get answered from the vault without reopening the file.
 - **Source-traceable:** every note cites where its facts came from.
 - **Small, linked notes beat big documents:** one idea per note, connected by `[[wikilinks]]`.
 - **Connectivity is a feature:** hubs index children; no orphans; run the hub-indexer + audit after edits.
