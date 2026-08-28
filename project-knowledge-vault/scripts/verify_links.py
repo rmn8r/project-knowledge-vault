@@ -4,26 +4,36 @@
 Usage:  python verify_links.py <vault_dir>
 
 Ignores links inside inline `code`, ``` fenced blocks ```, and <!-- HTML comments -->, and skips a
-'98 - Templates' folder (placeholder links there are expected). Exits non-zero if unresolved links
-remain, so it can gate a build.
+'98 - Templates' folder (placeholder links there are expected). Files that cannot be read (e.g.
+cloud-only/dehydrated OneDrive/SharePoint placeholders that raise OSError) are SKIPPED and reported,
+never fatal. Exits non-zero if unresolved links remain, so it can gate a build.
 """
 import os, sys, re, glob
 
 def strip_noise(t):
-    t = re.sub(r"<!--.*?-->", "", t, flags=re.S)      # html comments
-    t = re.sub(r"```.*?```", "", t, flags=re.S)        # fenced code
-    t = re.sub(r"`[^`]*`", "", t)                       # inline code
+    t = re.sub(r"<!--.*?-->", "", t, flags=re.S)
+    t = re.sub(r"```.*?```", "", t, flags=re.S)
+    t = re.sub(r"`[^`]*`", "", t)
     return t
+
+def read(f):
+    try:
+        return open(f, encoding="utf-8").read()
+    except Exception:
+        return None
 
 def main():
     if len(sys.argv) < 2:
         print(__doc__); sys.exit(2)
     root = sys.argv[1]
     files = glob.glob(os.path.join(root, "**", "*.md"), recursive=True)
-    notes, aliases = set(), set()
+    notes, aliases, unreadable = set(), set(), []
     for f in files:
         notes.add(os.path.splitext(os.path.basename(f))[0])
-        m = re.search(r"^---\n(.*?)\n---", open(f, encoding="utf-8").read(), re.S)
+        t = read(f)
+        if t is None:
+            unreadable.append(f); continue
+        m = re.search(r"^---\n(.*?)\n---", t, re.S)
         if m:
             am = re.search(r"aliases:\s*\[(.*?)\]", m.group(1))
             if am:
@@ -32,12 +42,15 @@ def main():
     unresolved = {}
     for f in files:
         if os.sep + "98 - Templates" + os.sep in f: continue
-        t = strip_noise(open(f, encoding="utf-8").read())
-        for l in re.findall(r"\[\[([^\]]+)\]\]", t):
+        t = read(f)
+        if t is None: continue
+        for l in re.findall(r"\[\[([^\]]+)\]\]", strip_noise(t)):
             tgt = l.split("|")[0].split("#")[0].strip()
             if tgt and tgt not in resolved:
                 unresolved.setdefault(tgt, []).append(os.path.basename(f))
-    print(f"Notes: {len(files)} | distinct link targets checked.")
+    print(f"Notes: {len(files)} | readable: {len(files)-len(unreadable)} | cloud-only/unreadable: {len(unreadable)}")
+    for f in unreadable:
+        print(f"  (skipped, hydrate to check) {f}")
     if not unresolved:
         print("All wikilinks resolve. ✔"); sys.exit(0)
     print(f"UNRESOLVED ({len(unresolved)}):")
