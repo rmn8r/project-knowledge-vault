@@ -372,7 +372,18 @@ def build(args):
     if emb_matrix is not None:
         np.save(emb_path, emb_matrix)
     elif os.path.exists(emb_path) and (args.no_embed or args.rebuild):
-        os.remove(emb_path)
+        # Drop stale vectors for a lexical-only/rebuild pass. On cloud-synced
+        # folders the file may be locked (OneDrive) and un-deletable — in that
+        # case empty it so np.load() fails and queries fall back to lexical,
+        # rather than crashing the whole build.
+        try:
+            os.remove(emb_path)
+        except OSError:
+            try:
+                open(emb_path, "wb").close()
+            except OSError:
+                print(f"  [embed] note: could not clear stale {emb_path} "
+                      f"(locked?); marked index as not-embedded.")
 
     manifest = {}
     for rel, fm in file_meta.items():
