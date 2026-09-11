@@ -1,6 +1,6 @@
 ---
 name: "project-knowledge-vault"
-description: "Turn a folder of project documents (drawings, specs, schedules, reports, emails, decks) into a linked Obsidian knowledge-base vault, then KEEP it alive as the project chat continues. Use to \"set up a new project / build a vault / review & organize these files / index a construction or engineering project,\" to answer questions from a document set, to integrate newly added files, or to log findings/decisions mid-conversation. Also keeps generated deliverables organized in topic subfolders and indexed with a synopsis of their contents. Construction/AEC is the primary use case but the workflow is domain-agnostic."
+description: "Turn a folder of project documents (drawings, specs, schedules, reports, emails, decks) into a linked Obsidian knowledge-base vault, then KEEP it alive as the project chat continues. Use to \"set up a new project / build a vault / review & organize these files / index a construction or engineering project,\" to answer questions from a document set, to integrate newly added files, or to log findings/decisions mid-conversation. Also keeps generated deliverables organized in topic subfolders and indexed with a synopsis of their contents, and offers an optional local, hybrid (lexical + semantic) RAG retrieval layer for concept-level search over a maintained vault. Construction/AEC is the primary use case but the workflow is domain-agnostic."
 ---
 
 # Project Knowledge Vault
@@ -31,8 +31,9 @@ Invoked automatically when a request matches, or explicitly via `/project-knowle
 | **Sync — findings** | corrections/decisions/gaps mid-chat | Apply capture rules (finding→note; gap→register; conflict→register) + a dated change-log line. |
 | **Catch-up** | logging has lapsed (several answers, no edits) | Run the **Catch-up recipe** below. |
 | **Audit / health check** | "check the vault," "is everything linked" | Run the **audit script**; fix orphans, unresolved links, hub-index gaps. |
+| **Retrieve (RAG)** *(optional)* | large/maintained vault; concept-level questions where the caller doesn't know the exact tag; "add semantic search" | Build/refresh the local hybrid index and query it (see **Retrieval** below). Answer from the cited passages; still apply Living-vault capture. |
 
-If the user wants a recurring refresh, offer a **scheduled task** running Update on a cadence.
+If the user wants a recurring refresh, offer a **scheduled task** running Update (and, if RAG is enabled, `rag_index.py`) on a cadence.
 
 ---
 ## Workflow (first build)
@@ -82,6 +83,35 @@ The graph and backlinks *are* the value. A note nothing links to is a defect.
 - **Bidirectional registers.** Any note named in a conflict/gap links the register back (a one-line "## Open items → [[Conflicts & Issues Register]] · [[Information Gaps & Open Questions]]").
 - **No orphans.** 0 inbound links is allowed only for Home/templates/README.
 - Run the **hub-indexer** whenever equipment notes are added; run the **audit** after any batch of edits.
+
+---
+## Retrieval (optional local RAG layer)
+For a maintained vault, add **semantic recall** on top of `[[wikilinks]]` + keyword search without losing exact-identifier precision. Two scripts, one on-disk index, **no service, no cloud**. See `references/rag-retrieval.md` for the full rationale.
+
+**When to add it.** Agentic keyword search (ripgrep + read the right note) answers most single-project questions already. RAG earns its keep when callers ask in **concepts, not tags** ("who owns the wire to the annunciator" vs. knowing it's spec `26 32 13 §K`), or the corpus outgrows what you want to grep every time / spans several projects. It's an **upgrade to a maintained vault**, not part of the first build — and the highest-value prep is still clean, well-tagged notes and registers, which make *both* keyword and RAG search accurate.
+
+**Hybrid, not pure vectors.** Technical docs live on exact IDs (`E565`, `XMS1`, `MCBU`, `26 08 01 §3.1.A`, `X-61`). Retrieval runs **BM25 lexical** (ID-aware tokenizer — nails those) **+ dense semantic** (catches the concept), fused with Reciprocal Rank Fusion. Pure embeddings lose the tags; keep both legs.
+
+**Non-negotiables (baked into the scripts):**
+- **Local only.** Embeddings use a local `sentence-transformers` model; text and vectors never leave the machine — required for Owner-Proprietary/confidential data. No hosted vector DB, no embedding API.
+- **Degrades gracefully.** No `numpy`/`sentence-transformers` → still builds and queries **lexical-only**; semantic switches on automatically once the deps exist. Nothing crashes on a missing model.
+- **On-disk, portable, incremental.** Index is a `.rag/` folder inside the vault (rides the synced project folder, no service); re-embeds only changed files (content hash).
+- **Citable.** Chunks carry `path` + heading path + section-like IDs, so every hit points back to a note/section — same traceability standard as the rest of the vault.
+
+**Where compute runs.** A locked-down agent sandbox usually can't reach PyPI/model hubs, so the **first embedding build runs on the user's machine** (the one syncing the vault) or CI; after that the on-disk index syncs and any environment can query it (falling back to lexical if the model isn't present). Offer a **scheduled task** to re-run `rag_index.py` after docs are added.
+
+```bash
+# on a machine with the model available (one-time dep, then reuse):
+pip install -r scripts/requirements-rag.txt
+python scripts/rag_index.py "<Project> Vault"                 # writes <vault>/.rag/ (incremental)
+python scripts/rag_index.py "<Project> Vault" --source ./_scratch/extracted   # + raw source text
+python scripts/rag_index.py "<Project> Vault" --no-embed      # fast lexical-only pass (any env)
+
+python scripts/rag_query.py "<Project> Vault" "who owns the annunciator wiring"
+python scripts/rag_query.py "<Project> Vault" "MCBU" --path Equipment    # path/tag/kind filters
+python scripts/rag_query.py "<Project> Vault" "battery cabinets" --json   # for programmatic use
+```
+Each hit prints **note path + heading + section IDs + score** — quote and cite the source note, then answer (same "answer first, cite the source" habit as manual Q&A). Index only vault notes by default (the curated layer); add drawings via their per-sheet metadata notes, not raw drawing text. Add `.rag/` to ignore lists — it's a rebuildable cache, and because it can hold verbatim confidential passages, keep it in the private folder, never publish it.
 
 ---
 ## File organization (keep the project tidy)
@@ -236,10 +266,13 @@ After running either script, re-run the audit and confirm 0 unresolved / 0 orpha
 - `references/note-templates.md` — equipment/hub/system/register templates; `PROJECT_FACTS.md` / `STYLE_GUIDE.md` contents.
 - `references/extraction-playbook.md` — per-file-type extraction (large PDFs, image-only decks/OCR, cloud-synced files).
 - `references/update-workflow.md` — living-vault sync rules + new-files recipe.
+- `references/rag-retrieval.md` — optional local hybrid RAG layer: rationale, constraints, chunking, usage.
 
 ## Scripts
 - `scripts/extract_text.py` — batch extraction + inventory. `python extract_text.py <src> <out>`.
 - `scripts/verify_links.py` — link check (note: guard reads / prefer the embedded resilient **audit** above on cloud-synced vaults).
+- `scripts/rag_index.py` — build/refresh the local hybrid RAG index (`.rag/` in the vault). Local embeddings, incremental, lexical-only fallback. `python rag_index.py "<vault>" [--source <dir>] [--no-embed]`.
+- `scripts/rag_query.py` — hybrid (BM25 + dense, RRF-fused) retrieval with path/tag filters and cited passages. `python rag_query.py "<vault>" "<question>" [-k N] [--json]`.
 
 ## Principles
 - **Organize outputs, don't dump them.** Every generated file lands in the topic subfolder that fits (create one if needed); the project root stays clean; the deliverables index + folder map stay current.
@@ -247,6 +280,7 @@ After running either script, re-run the audit and confirm 0 unresolved / 0 orpha
 - **Source-traceable:** every note cites where its facts came from.
 - **Small, linked notes beat big documents:** one idea per note, connected by `[[wikilinks]]`.
 - **Connectivity is a feature:** hubs index children; no orphans; run the hub-indexer + audit after edits.
+- **Retrieval stays local and hybrid:** if you add RAG, embeddings run on a local model (nothing leaves the machine) and lexical BM25 always rides alongside dense search so exact tags/IDs never get lost.
 - **Log as you go:** capture material findings the same turn — don't let them pile up.
 - **Track problems, don't bury them:** conflicts and gaps get registers.
 - **Persist for the next person:** a project-memory `CLAUDE.md` + a glossary make the skill transferable.

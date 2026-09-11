@@ -1,0 +1,9 @@
+# Optional dependencies for the local hybrid RAG retrieval layer
+# (scripts/rag_index.py, scripts/rag_query.py). Not required for the rest of
+# the skill, and not required for lexical-only retrieval (--no-embed / auto
+# fallback) — see references/rag-retrieval.md.
+#
+# Install once per machine:
+#   pip install -r scripts/requirements-rag.txt
+numpy
+sentence-transformers>=2.6
