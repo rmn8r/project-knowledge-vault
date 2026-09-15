@@ -139,12 +139,15 @@ def out_path(out_dir, base, ext=".txt", limit=250):
     Windows MAX_PATH limit (260). Flattened relative paths from deep document
     trees routinely blow past it, and pdftotext then writes nothing (the file
     shows up as ERR and never reaches the index). Names that already fit are
-    returned untouched, so this never invalidates an existing incremental cache."""
-    p = os.path.join(out_dir, base + ext)
-    if len(p) <= limit:
-        return p
+    returned untouched, so this never invalidates an existing incremental cache.
+
+    Length is measured against the *resolved* directory: out_dir is typically
+    passed on the command line as a short relative path, but MAX_PATH applies to
+    the absolute path the OS ends up opening."""
+    room = limit - len(os.path.abspath(out_dir)) - len(os.sep) - len(ext) - 9
+    if len(base) + len(ext) <= room + 9:
+        return os.path.join(out_dir, base + ext)
     h = hashlib.sha1(base.encode("utf-8", "ignore")).hexdigest()[:8]
-    room = limit - len(out_dir) - len(os.sep) - len(ext) - 9
     return os.path.join(out_dir, base[:max(room, 16)] + "_" + h + ext)
 
 def main():
