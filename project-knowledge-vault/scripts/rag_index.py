@@ -45,7 +45,7 @@ Outputs (in <index>/):
 
 This file writes NOTHING outside <index>/. It only reads the vault/source dirs.
 """
-import os, sys, re, json, hashlib, argparse, time, glob
+import os, sys, re, json, hashlib, argparse, time, glob, collections
 
 # Force UTF-8 on stdout/stderr so non-ASCII vault text (e.g. "→", "§") doesn't
 # crash on a Windows console's default codepage. (Matches the GitHub fix.)
@@ -66,7 +66,22 @@ def _try_numpy():
     except Exception:
         return None
 
-def _load_model(name):
+def _pick_device(requested):
+    """'cuda' when a GPU is actually usable, else 'cpu'. Honours an explicit
+    --device. Embedding is the long pole of a full build and a mid-range laptop
+    GPU runs it roughly an order of magnitude faster than the CPU, so this is
+    worth detecting rather than leaving to chance."""
+    if requested:
+        return requested
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+    return "cpu"
+
+def _load_model(name, device="cpu", fp16=False):
     """Return (encoder_callable, dim, model_name) or (None, None, None)."""
     try:
         from sentence_transformers import SentenceTransformer
@@ -76,14 +91,20 @@ def _load_model(name):
         return None, None, None
     for cand in [name, FALLBACK_MODEL]:
         try:
-            m = SentenceTransformer(cand)
+            m = SentenceTransformer(cand, device=device)
+            if fp16 and device == "cuda":
+                # ~3x faster on this class of GPU; the retrieval quality
+                # difference for a small bi-encoder is not measurable here, and
+                # vectors are stored back as float32 either way.
+                m = m.half()
             # get_sentence_embedding_dimension() is deprecated in newer
             # sentence-transformers; prefer get_embedding_dimension(). (Matches GitHub fix.)
             try:
                 dim = m.get_embedding_dimension()
             except Exception:
                 dim = m.get_sentence_embedding_dimension()
-            print(f"  [embed] loaded local model: {cand} (dim={dim})")
+            print(f"  [embed] loaded local model: {cand} (dim={dim}, "
+                  f"device={device}{', fp16' if fp16 and device == 'cuda' else ''})")
             return m, dim, cand
         except Exception as e:
             print(f"  [embed] could not load {cand}: {e.__class__.__name__}: {e}")
@@ -334,7 +355,9 @@ def build(args):
     model_name = None
     dim = None
     if not args.no_embed and np is not None:
-        model, dim, model_name = _load_model(args.model)
+        _device = _pick_device(args.device)
+        _fp16 = (_device == "cuda") and not args.no_fp16
+        model, dim, model_name = _load_model(args.model, _device, _fp16)
         if model is not None:
             # reuse prior vectors for unchanged chunks when possible
             prior_vecs = {}
@@ -348,23 +371,41 @@ def build(args):
                     prior_vecs = {}
             need = [c for c in all_chunks if c["id"] not in prior_vecs]
             print(f"  embedding {len(need)} new/changed chunks "
-                  f"(reused {len(all_chunks)-len(need)})...")
-            new_vecs = {}
+                  f"(reused {len(all_chunks)-len(need)})...", flush=True)
+
+            # Stream straight into a memory-mapped .npy. Encoding every chunk in
+            # one model.encode() call and then np.vstack-ing the per-row arrays
+            # needs the whole float32 matrix in RAM twice over plus the full list
+            # of prefixed texts; on a real project corpus (millions of chunks,
+            # ~6 GB of vectors) that exhausts memory long before it finishes.
+            # A memmap keeps peak RAM flat at one batch regardless of corpus size.
+            os.makedirs(os.path.dirname(emb_path) or ".", exist_ok=True)
+            emb_matrix = np.lib.format.open_memmap(
+                emb_path, mode="w+", dtype="float32", shape=(len(all_chunks), dim))
+            row_of = {c["id"]: i for i, c in enumerate(all_chunks)}
+            for cid, v in prior_vecs.items():
+                i = row_of.get(cid)
+                if i is not None:
+                    emb_matrix[i] = v
+            prior_vecs = None
             if need:
                 # bge models benefit from a passage prefix; harmless for MiniLM
                 prefix = "Represent this passage for retrieval: " if "bge" in (model_name or "").lower() else ""
-                texts = [prefix + c["text"] for c in need]
-                arr = model.encode(texts, batch_size=32, show_progress_bar=False,
-                                   normalize_embeddings=True)
-                for c, v in zip(need, arr):
-                    new_vecs[c["id"]] = np.asarray(v, dtype="float32")
-            rows = []
-            for c in all_chunks:
-                v = prior_vecs.get(c["id"])
-                if v is None:
-                    v = new_vecs[c["id"]]
-                rows.append(np.asarray(v, dtype="float32"))
-            emb_matrix = np.vstack(rows) if rows else None
+                batch = max(1, args.embed_batch)
+                t0 = time.time()
+                for s in range(0, len(need), batch):
+                    part = need[s:s + batch]
+                    arr = model.encode([prefix + c["text"] for c in part],
+                                       batch_size=min(batch, args.encode_batch),
+                                       show_progress_bar=False,
+                                       normalize_embeddings=True)
+                    for c, v in zip(part, arr):
+                        emb_matrix[row_of[c["id"]]] = v
+                    done = s + len(part)
+                    rate = done / max(time.time() - t0, 1e-6)
+                    print(f"    {done}/{len(need)} chunks  ({rate:.0f}/s, "
+                          f"eta {(len(need)-done)/max(rate,1e-6)/60:.0f} min)", flush=True)
+            emb_matrix.flush()
     elif args.no_embed:
         print("  [embed] skipped (--no-embed): lexical-only index")
     else:
@@ -375,7 +416,9 @@ def build(args):
         for c in all_chunks:
             f.write(json.dumps(c, ensure_ascii=False) + "\n")
     if emb_matrix is not None:
-        np.save(emb_path, emb_matrix)
+        # already written in place by the memmap above
+        del emb_matrix
+        emb_matrix = True
     elif os.path.exists(emb_path) and (args.no_embed or args.rebuild):
         # Drop stale vectors for a lexical-only/rebuild pass. On cloud-synced
         # folders the file may be locked (OneDrive) and un-deletable — in that
@@ -390,10 +433,14 @@ def build(args):
                 print(f"  [embed] note: could not clear stale {emb_path} "
                       f"(locked?); marked index as not-embedded.")
 
+    # Count per file in one pass. Scanning all_chunks once per file is
+    # O(files x chunks) - at project scale (thousands of files, millions of
+    # chunks) that is tens of billions of comparisons and never finishes.
+    per_file = collections.Counter(c["path"] for c in all_chunks)
     manifest = {}
     for rel, fm in file_meta.items():
-        n = sum(1 for c in all_chunks if c["path"] == rel)
-        manifest[rel] = dict(hash=fm["hash"], mtime=fm["mtime"], n_chunks=n)
+        manifest[rel] = dict(hash=fm["hash"], mtime=fm["mtime"],
+                             n_chunks=per_file.get(rel, 0))
     json.dump(manifest, open(manifest_path, "w"), indent=0)
 
     meta = dict(
@@ -421,6 +468,14 @@ def main():
     ap.add_argument("--index", default=None)
     ap.add_argument("--chunk-chars", type=int, default=1200, dest="chunk_chars")
     ap.add_argument("--overlap", type=int, default=200)
+    ap.add_argument("--embed-batch", type=int, default=2048, dest="embed_batch",
+                    help="chunks encoded per streamed batch (memory/throughput knob)")
+    ap.add_argument("--encode-batch", type=int, default=128, dest="encode_batch",
+                    help="model.encode batch size (128 suits an 8GB GPU)")
+    ap.add_argument("--device", default=None,
+                    help="force 'cuda' or 'cpu' (default: cuda when available)")
+    ap.add_argument("--no-fp16", action="store_true", dest="no_fp16",
+                    help="keep full precision on GPU (slower)")
     ap.add_argument("--no-embed", action="store_true", dest="no_embed")
     ap.add_argument("--rebuild", action="store_true")
     args = ap.parse_args()

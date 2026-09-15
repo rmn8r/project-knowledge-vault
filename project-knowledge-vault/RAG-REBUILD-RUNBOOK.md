@@ -19,6 +19,18 @@ pdftotext -v; pdftoppm -v; tesseract --version
 If Tesseract isn't installed, the rebuild still runs — image-only sheets are just
 listed as "need-ocr" and skipped until you add it.
 
+**Use the GPU if there is one.** Embedding is by far the longest step of a first
+build, and `pip install sentence-transformers` pulls the **CPU-only** torch wheel.
+On an NVIDIA card, install the CUDA build that matches `nvidia-smi`'s CUDA version
+and `rag_index.py` picks it up automatically (`--device` / `--no-fp16` override it):
+```powershell
+nvidia-smi                      # read the "CUDA Version" in the header
+pip install --index-url https://download.pytorch.org/whl/cu132 "torch==2.14.0+cu132"
+python -c "import torch; print(torch.cuda.is_available())"   # must print True
+```
+Measured on this project's corpus (3.9M chunks, RTX 2000 Ada laptop GPU):
+CPU 26 chunks/s = ~42 h; GPU fp16 693 chunks/s = **~1.6 h**.
+
 ## 1. Hydrate the cloud-only source files first
 The `Drawings & Specs\Specifications\` set and some submittals are OneDrive
 **cloud-only** (gaps G-19/G-20). In File Explorer: right-click
@@ -29,11 +41,16 @@ sync, or the extractor will report them as unreadable and skip them.
 ```powershell
 python pkv-skill-update\scripts\reindex_all.py `
   --vault "AWS Avondale 069 Vault" `
+  --scratch "$env:LOCALAPPDATA\pkv\phx069\rag_source" `
   --docs  "Drawings & Specs\Specifications" --docs "Subcontracts" --docs "Submittals" --docs "Owner Contract" --docs "Change Orders" `
   --drawings "Drawings & Specs" `
   --rebuild
 ```
-- Extracts source-doc text → `AWS Avondale 069 Vault\.rag_source\extracted\`
+- Extracts source-doc text → the `--scratch` folder. Keep that **off** OneDrive
+  (`%LOCALAPPDATA%\pkv\phx069\rag_source`): it is rebuildable working data holding
+  verbatim confidential text, and nothing reads it at query time. The `.rag\` index
+  itself *does* stay inside the vault, so anyone else opening the shared OneDrive
+  copy can query without rebuilding — `rag_query.py` needs only `.rag\`.
 - OCRs the drawing set into the same folder (native text where present, OCR for
   stamped/image sheets). First OCR pass over the full E/M/A/S set is the slow part
   (tens of minutes); it's incremental afterward. To scope a first pass, add
@@ -58,9 +75,12 @@ processes only what changed **since the last successful run** — i.e. "from las
 First create the wrapper `pkv-skill-update\scripts\reindex_phx069.cmd`:
 ```bat
 @echo off
+set "PKV_SCRATCH=%LOCALAPPDATA%\pkv\phx069\rag_source"
 cd /d "%~dp0\..\.."
+if not exist "AWS Avondale 069 Vault\.rag" mkdir "AWS Avondale 069 Vault\.rag"
 python "pkv-skill-update\scripts\reindex_all.py" ^
   --vault "AWS Avondale 069 Vault" ^
+  --scratch "%PKV_SCRATCH%" ^
   --docs "Drawings & Specs\Specifications" --docs "Subcontracts" --docs "Submittals" --docs "Owner Contract" --docs "Change Orders" ^
   --drawings "Drawings & Specs" >> "AWS Avondale 069 Vault\.rag\reindex.log" 2>&1
 ```
@@ -82,17 +102,25 @@ It reflects whatever findings were **logged into the vault notes** — the index
 learn from chats on its own.
 
 ## 5. Housekeeping (do once)
-- Add to the repo `.gitignore` (already staged) and to any Obsidian/OneDrive ignore:
-  `.rag/` and `.rag_source/` — both are rebuildable local caches and can hold
-  verbatim confidential passages; never commit or publish them.
+- Add to the repo `.gitignore` (already staged) and to any Obsidian ignore:
+  `.rag/` and `.rag_source/` — both are rebuildable caches and can hold verbatim
+  confidential passages; never commit or publish them.
+- Decide deliberately which of the two syncs. `.rag_source/` is pure working data
+  — point `--scratch` at a local-only path. `.rag/` is what `rag_query.py` reads,
+  so leaving it in the synced vault is what lets a second person query the shared
+  copy; that does put chunk text and vectors in the tenant, which is the trade.
 - **Delete the stray empty folder `_rag_scratch\` in the project root** (created by an
   earlier sandbox smoke-test; the sandbox couldn't remove it due to a OneDrive lock).
-- The scratch/index live *inside* the vault folder as dot-folders, so they stay out of
-  the project root and Obsidian ignores them.
+- The `.rag/` index lives *inside* the vault as a dot-folder, so it stays out of the
+  project root and Obsidian ignores it. The scratch is deliberately outside (above).
 
 ## Notes
 - **Confidentiality:** local model, local `.rag/` + `.rag_source/`. Nothing is sent
-  anywhere. Keep both caches in the private OneDrive folder.
+  to any third party. Both caches hold verbatim passages — keep them private.
+- **Size:** budget for it. This corpus extracts to ~3.5 GB of text and indexes to
+  3.9M chunks: ~6 GB of vectors plus a multi-GB `chunks.jsonl`. `rag_index.py`
+  streams embeddings into a memory-mapped array, so peak RAM stays flat, but the
+  disk footprint is real.
 - **Coverage reality:** OCR of stamped drawings is noisy — it makes titles, notes, and
   schedule text searchable, but the *graphical* content (one-line topology, terminal
   wiring) still lives best in the per-sheet metadata notes. Log the details that matter
