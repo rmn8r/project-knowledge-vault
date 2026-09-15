@@ -41,13 +41,13 @@ sync, or the extractor will report them as unreadable and skip them.
 ```powershell
 python pkv-skill-update\scripts\reindex_all.py `
   --vault "AWS Avondale 069 Vault" `
-  --scratch "$env:LOCALAPPDATA\pkv\phx069\rag_source" `
+  --scratch "$env:USERPROFILE\.pkv\phx069\rag_source" `
   --docs  "Drawings & Specs\Specifications" --docs "Subcontracts" --docs "Submittals" --docs "Owner Contract" --docs "Change Orders" `
   --drawings "Drawings & Specs" `
   --rebuild
 ```
 - Extracts source-doc text → the `--scratch` folder. Keep that **off** OneDrive
-  (`%LOCALAPPDATA%\pkv\phx069\rag_source`): it is rebuildable working data holding
+  (`%USERPROFILE%\.pkv\phx069\rag_source`): it is rebuildable working data holding
   verbatim confidential text, and nothing reads it at query time. The `.rag\` index
   itself *does* stay inside the vault, so anyone else opening the shared OneDrive
   copy can query without rebuilding — `rag_query.py` needs only `.rag\`.
@@ -75,7 +75,7 @@ processes only what changed **since the last successful run** — i.e. "from las
 First create the wrapper `pkv-skill-update\scripts\reindex_phx069.cmd`:
 ```bat
 @echo off
-set "PKV_SCRATCH=%LOCALAPPDATA%\pkv\phx069\rag_source"
+set "PKV_SCRATCH=%USERPROFILE%\.pkv\phx069\rag_source"
 cd /d "%~dp0\..\.."
 if not exist "AWS Avondale 069 Vault\.rag" mkdir "AWS Avondale 069 Vault\.rag"
 python "pkv-skill-update\scripts\reindex_all.py" ^
@@ -105,6 +105,10 @@ learn from chats on its own.
 - Add to the repo `.gitignore` (already staged) and to any Obsidian ignore:
   `.rag/` and `.rag_source/` — both are rebuildable caches and can hold verbatim
   confidential passages; never commit or publish them.
+- Do **not** put the scratch under `%LOCALAPPDATA%` if Python came from the
+  Microsoft Store: that build runs with AppData redirected into its own package
+  container, so it cannot see a folder written there by anything else, and
+  `--source` silently matches zero files. `%USERPROFILE%\.pkv\` is fine.
 - Decide deliberately which of the two syncs. `.rag_source/` is pure working data
   — point `--scratch` at a local-only path. `.rag/` is what `rag_query.py` reads,
   so leaving it in the synced vault is what lets a second person query the shared

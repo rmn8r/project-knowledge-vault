@@ -260,9 +260,23 @@ def iter_files(vault_dir, source_dirs):
             continue
         yield f, os.path.relpath(f, vault_dir), "note"
     for sd in source_dirs or []:
+        # A --source that resolves to nothing must be loud. Silently indexing
+        # the notes alone produces a plausible-looking index that is missing the
+        # entire document corpus, and nothing downstream can tell the difference.
+        # (Seen for real: %LOCALAPPDATA% paths are redirected away under the
+        # Microsoft Store build of Python, so the scratch dir vanished.)
+        if not os.path.isdir(sd):
+            print(f"  [source] WARNING: not a directory, indexing nothing from it: {sd}")
+            continue
+        n = 0
         for ext in ("*.txt", "*.md"):
             for f in glob.glob(os.path.join(sd, "**", ext), recursive=True):
+                n += 1
                 yield f, os.path.join("[source]", os.path.relpath(f, sd)), "source"
+        if n == 0:
+            print(f"  [source] WARNING: no .txt/.md found under {sd}")
+        else:
+            print(f"  [source] {n} files from {sd}")
 
 # ---------------------------------------------------------------- main build
 def build(args):
