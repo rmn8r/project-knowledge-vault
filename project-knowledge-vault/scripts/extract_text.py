@@ -9,8 +9,35 @@ Text is *working data* for building the vault, not part of the vault itself.
 """
 import os, sys, re, subprocess, zipfile, shutil, hashlib
 
+# Source paths and helper-tool output routinely contain characters outside a
+# Windows console/redirect's default codepage (cp1252). Force UTF-8 so printing
+# a filename can never abort the run.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+class _Failed:
+    """Stand-in for CompletedProcess when a helper binary cannot run at all."""
+    returncode = 1
+    stdout = ""
+    def __init__(self, err=""):
+        self.stderr = err
+
 def sh(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True)
+    """Run a helper binary. Never raises - a missing tool or undecodable output
+    must not abort a whole folder's extraction.
+
+    encoding/errors are pinned because text=True decodes with the locale codec
+    (cp1252 on Windows): one non-cp1252 byte in a tool's output raises
+    UnicodeDecodeError inside subprocess's reader thread, which both kills the
+    run and leaves .stdout set to None."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+    except (OSError, ValueError) as e:
+        return _Failed(str(e))
 
 def pdf_pages(path):
     r = sh(["pdfinfo", path])
@@ -64,9 +91,42 @@ def extract_pptx(path, out):
     except Exception as e:
         print("  pptx error:", e); return False
 
+def _msg_strings_py(path, out, minlen=6):
+    """Pure-Python stand-in for `strings`, which is a binutils tool and is not
+    present on a stock Windows box. Collects runs of printable ASCII, read both
+    as UTF-16LE (step 2) and as 8-bit (step 1), same as the two `strings` calls
+    below."""
+    try:
+        raw = open(path, "rb").read()
+    except OSError as e:
+        print("  msg error:", e)
+        return False
+
+    def runs(data, step):
+        found, cur = [], bytearray()
+        for i in range(0, len(data) - step + 1, step):
+            ch = data[i]
+            wide_ok = step == 1 or data[i + 1] == 0
+            if 0x20 <= ch < 0x7f and wide_ok:
+                cur.append(ch)
+                continue
+            if len(cur) >= minlen:
+                found.append(cur.decode("ascii", "replace"))
+            cur = bytearray()
+        if len(cur) >= minlen:
+            found.append(cur.decode("ascii", "replace"))
+        return found
+
+    a, b = "\n".join(runs(raw, 2)), "\n".join(runs(raw, 1))
+    with open(out, "w", encoding="utf-8") as f:
+        f.write("=== UTF-16 strings ===\n" + a + "\n=== ASCII strings ===\n" + b)
+    return True
+
 def extract_msg(path, out):
-    a = sh(["strings", "-e", "l", "-n", "8", path]).stdout
-    b = sh(["strings", "-n", "6", path]).stdout
+    if not shutil.which("strings"):
+        return _msg_strings_py(path, out)
+    a = sh(["strings", "-e", "l", "-n", "8", path]).stdout or ""
+    b = sh(["strings", "-n", "6", path]).stdout or ""
     with open(out, "w", encoding="utf-8") as f:
         f.write("=== UTF-16 strings ===\n" + a + "\n=== ASCII strings ===\n" + b)
     return True

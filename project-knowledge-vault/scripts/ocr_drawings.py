@@ -34,9 +34,23 @@ and reports which files would have needed OCR.
 """
 import os, sys, re, subprocess, shutil, argparse, glob, tempfile, hashlib
 
-def sh(cmd):
+# Source paths and helper-tool output routinely contain characters outside a
+# Windows console/redirect's default codepage (cp1252). Force UTF-8 so printing
+# a filename can never abort the run.
+for _s in (sys.stdout, sys.stderr):
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+def sh(cmd):
+    """Run a helper binary. encoding/errors are pinned because text=True decodes
+    with the locale codec (cp1252 on Windows): one non-cp1252 byte in pdftotext
+    or tesseract output raises UnicodeDecodeError in subprocess's reader thread,
+    which leaves .stdout set to None and takes the whole OCR pass down."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=600)
     except Exception as e:
         class R:  # minimal stand-in
             returncode = 1; stdout = ""; stderr = str(e)
@@ -67,7 +81,7 @@ def ocr_pdf(pdf, dpi, lang):
         pages = sorted(glob.glob(base + "*.png"))
         for p in pages:
             r = sh(["tesseract", p, "stdout", "-l", lang, "--psm", "6"])
-            if r.returncode == 0:
+            if r.returncode == 0 and r.stdout:
                 out.append(r.stdout)
     return "\n".join(out)
 
