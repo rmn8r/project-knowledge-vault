@@ -382,12 +382,24 @@ def build(args):
                     # streamed out, and an incremental run only needs to copy the
                     # rows it still has a use for.
                     prev = np.load(emb_path, mmap_mode="r")
-                    prev_ids = [json.loads(l)["id"] for l in open(chunks_path, encoding="utf-8")]
-                    if len(prev_ids) == prev.shape[0]:
-                        prior_vecs = {cid: prev[i] for i, cid in enumerate(prev_ids)}
+                    # Key reuse on the chunk's own TEXT, not its id. Ids are
+                    # "<path>::<n>", so re-chunking an edited note yields the same
+                    # ids it had before - and reusing by id would hand the new
+                    # text the old text's vector. The lexical half would show the
+                    # edit while the semantic half silently kept answering from
+                    # the superseded wording, which is precisely backwards for a
+                    # vault whose whole workflow is "log the finding, re-index".
+                    # Hashing the text also makes a pure rename (same content,
+                    # new output filename) free instead of a full re-embed.
+                    prev_keys = [sha(json.loads(l)["text"])
+                                 for l in open(chunks_path, encoding="utf-8")]
+                    if len(prev_keys) == prev.shape[0]:
+                        prior_vecs = {k: prev[i] for i, k in enumerate(prev_keys)}
+                    del prev_keys
                 except Exception:
                     prior_vecs = {}
-            need = [c for c in all_chunks if c["id"] not in prior_vecs]
+            chunk_keys = [sha(c["text"]) for c in all_chunks]
+            need = [c for c, k in zip(all_chunks, chunk_keys) if k not in prior_vecs]
             print(f"  embedding {len(need)} new/changed chunks "
                   f"(reused {len(all_chunks)-len(need)})...", flush=True)
 
@@ -410,11 +422,12 @@ def build(args):
             emb_matrix = np.lib.format.open_memmap(
                 emb_building, mode="w+", dtype="float32", shape=(len(all_chunks), dim))
             row_of = {c["id"]: i for i, c in enumerate(all_chunks)}
-            for cid, v in prior_vecs.items():
-                i = row_of.get(cid)
-                if i is not None:
+            for i, k in enumerate(chunk_keys):
+                v = prior_vecs.get(k)
+                if v is not None:
                     emb_matrix[i] = v
             prior_vecs = None
+            chunk_keys = None
             if need:
                 # bge models benefit from a passage prefix; harmless for MiniLM
                 prefix = "Represent this passage for retrieval: " if "bge" in (model_name or "").lower() else ""
