@@ -7,7 +7,7 @@ Handles PDF (pdftotext), XLSX (openpyxl), PPTX (slide XML), CSV/TXT, and .msg (s
 Writes one <name>.txt per source and an INVENTORY.md (file list + sizes + PDF page counts).
 Text is *working data* for building the vault, not part of the vault itself.
 """
-import os, sys, re, subprocess, zipfile, shutil, hashlib
+import os, sys, re, subprocess, zipfile, shutil, hashlib, tempfile, contextlib
 
 # Source paths and helper-tool output routinely contain characters outside a
 # Windows console/redirect's default codepage (cp1252). Force UTF-8 so printing
@@ -39,14 +39,49 @@ def sh(cmd):
     except (OSError, ValueError) as e:
         return _Failed(str(e))
 
+@contextlib.contextmanager
+def readable(path):
+    """Yield a path the helper binaries can actually open.
+
+    Windows MAX_PATH applies to poppler and tesseract even where Python itself
+    reads the file fine: for any source deeper than 260 characters they fail with
+    "I/O Error: Couldn't open file", and poppler ignores the extended-length path
+    prefix too. Stage those few files at a short temp path instead. Anything that
+    already fits is yielded untouched, so the common case copies nothing."""
+    if len(os.path.abspath(path)) < 250:
+        yield path
+        return
+    fd, tmp = tempfile.mkstemp(suffix=os.path.splitext(path)[1] or ".pdf")
+    os.close(fd)
+    try:
+        shutil.copyfile(path, tmp)
+    except OSError as e:
+        # Staging failed; hand back the original and let the caller report it.
+        print("  ! could not stage long path (%s): %s" % (e, path))
+        _unlink(tmp)
+        yield path
+        return
+    try:
+        yield tmp
+    finally:
+        _unlink(tmp)
+
+def _unlink(p):
+    try:
+        os.remove(p)
+    except OSError:
+        pass
+
 def pdf_pages(path):
-    r = sh(["pdfinfo", path])
-    m = re.search(r"Pages:\s+(\d+)", r.stdout)
+    with readable(path) as src:
+        r = sh(["pdfinfo", src])
+    m = re.search(r"Pages:\s+(\d+)", r.stdout or "")
     return int(m.group(1)) if m else None
 
 def extract_pdf(path, out):
     if shutil.which("pdftotext"):
-        sh(["pdftotext", "-layout", path, out])
+        with readable(path) as src:
+            sh(["pdftotext", "-layout", src, out])
         return os.path.exists(out)
     try:
         from pypdf import PdfReader

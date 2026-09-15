@@ -32,7 +32,7 @@ Dependencies: poppler (pdftotext, pdftoppm, pdfinfo) and tesseract-ocr.
 If tesseract is missing, the script still exports whatever native text exists
 and reports which files would have needed OCR.
 """
-import os, sys, re, subprocess, shutil, argparse, glob, tempfile, hashlib
+import os, sys, re, subprocess, shutil, argparse, glob, tempfile, hashlib, contextlib
 
 # Source paths and helper-tool output routinely contain characters outside a
 # Windows console/redirect's default codepage (cp1252). Force UTF-8 so printing
@@ -55,6 +55,39 @@ def sh(cmd):
         class R:  # minimal stand-in
             returncode = 1; stdout = ""; stderr = str(e)
         return R()
+
+@contextlib.contextmanager
+def readable(path):
+    """Yield a path the helper binaries can actually open.
+
+    Windows MAX_PATH applies to poppler and tesseract even where Python itself
+    reads the file fine: for any source deeper than 260 characters they fail with
+    "I/O Error: Couldn't open file", and poppler ignores the extended-length path
+    prefix too. Stage those few files at a short temp path instead. Anything that
+    already fits is yielded untouched, so the common case copies nothing."""
+    if len(os.path.abspath(path)) < 250:
+        yield path
+        return
+    fd, tmp = tempfile.mkstemp(suffix=os.path.splitext(path)[1] or ".pdf")
+    os.close(fd)
+    try:
+        shutil.copyfile(path, tmp)
+    except OSError as e:
+        # Staging failed; hand back the original and let the caller report it.
+        print("  ! could not stage long path (%s): %s" % (e, path))
+        _unlink(tmp)
+        yield path
+        return
+    try:
+        yield tmp
+    finally:
+        _unlink(tmp)
+
+def _unlink(p):
+    try:
+        os.remove(p)
+    except OSError:
+        pass
 
 def have(tool):
     return shutil.which(tool) is not None
@@ -151,24 +184,25 @@ def main():
             n_unreadable += 1
             continue
 
-        txt = native_text(pdf)
-        used = "native"
-        if txt is None:
-            txt = ""
-        if len(txt.strip()) < args.min_chars:
-            if have_ocr:
-                ocr = ocr_pdf(pdf, args.dpi, args.lang)
-                if ocr and len(ocr.strip()) > len(txt.strip()):
-                    txt = ocr
-                    used = "ocr"
-                    n_ocr += 1
+        with readable(pdf) as src:
+            txt = native_text(src)
+            used = "native"
+            if txt is None:
+                txt = ""
+            if len(txt.strip()) < args.min_chars:
+                if have_ocr:
+                    ocr = ocr_pdf(src, args.dpi, args.lang)
+                    if ocr and len(ocr.strip()) > len(txt.strip()):
+                        txt = ocr
+                        used = "ocr"
+                        n_ocr += 1
+                    else:
+                        n_native += 1
                 else:
+                    n_need_ocr += 1
                     n_native += 1
             else:
-                n_need_ocr += 1
                 n_native += 1
-        else:
-            n_native += 1
 
         header = f"# SOURCE DRAWING: {rel}\n# extraction: {used}\n\n"
         try:
