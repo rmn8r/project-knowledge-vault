@@ -5,6 +5,8 @@ Usage:  python extract_text.py <source_dir> <out_dir> [--force]
 
 Incremental: a source whose extracted .txt is at least as new as it is gets
 skipped. Pass --force to re-extract everything.
+Pass --record <file> to append the basename of every live output (used by
+reindex_all.py to prune stale ones).
 
 Handles PDF (pdftotext), XLSX (openpyxl), PPTX (slide XML), CSV/TXT, and .msg (strings).
 Writes one <name>.txt per source and an INVENTORY.md (file list + sizes + PDF page counts).
@@ -193,6 +195,13 @@ def main():
         print(__doc__); sys.exit(1)
     src, out = sys.argv[1], sys.argv[2]
     force = "--force" in sys.argv[3:]
+    record = None
+    for i, a in enumerate(sys.argv):
+        if a == "--record" and i + 1 < len(sys.argv):
+            # Append the basename of every output this run still considers live
+            # (written or skipped-as-current). reindex_all.py uses the union of
+            # these to prune outputs whose source is gone or now maps elsewhere.
+            record = open(sys.argv[i + 1], "a", encoding="utf-8")
     os.makedirs(out, exist_ok=True)
     inv = []
     n_cached = 0
@@ -213,6 +222,8 @@ def main():
                     if os.path.getmtime(txt) >= os.path.getmtime(p):
                         n_cached += 1
                         inv.append((rel, f"{size} KB", "", "ok (cached)"))
+                        if record:
+                            record.write(os.path.basename(txt) + "\n")
                         continue
                 except OSError:
                     pass
@@ -230,11 +241,15 @@ def main():
             else:
                 inv.append((rel, f"{size} KB", pages, "skipped (unsupported)")); continue
             inv.append((rel, f"{size} KB", pages, "ok" if ok else "FAILED"))
+            if ok and record:
+                record.write(os.path.basename(txt) + "\n")
             print(f"{'ok ' if ok else 'ERR'} {rel} ({size} KB) {pages}")
     with open(os.path.join(out, "INVENTORY.md"), "w", encoding="utf-8") as f:
         f.write("# Source Inventory\n\n| File | Size | Pages | Extract |\n|---|---|---|---|\n")
         for rel, size, pages, status in inv:
             f.write(f"| {rel} | {size} | {pages} | {status} |\n")
+    if record:
+        record.close()
     print(f"\nInventory: {len(inv)} files "
           f"({n_cached} unchanged, skipped) -> {os.path.join(out,'INVENTORY.md')}")
 

@@ -54,6 +54,8 @@ def main():
     ap.add_argument("--model", default=None)
     ap.add_argument("--ocr-limit", type=int, default=0)
     ap.add_argument("--python", default=sys.executable)
+    ap.add_argument("--keep-stale", action="store_true",
+                    help="never delete extracted text whose source is gone")
     args = ap.parse_args()
 
     py = args.python
@@ -62,26 +64,67 @@ def main():
     extracted = os.path.join(scratch, "extracted")
     os.makedirs(extracted, exist_ok=True)
 
+    # Each step appends the basenames it still considers live. Anything left in
+    # the scratch afterwards has no source behind it any more - renamed, deleted,
+    # or its output name changed - and would otherwise be indexed forever as a
+    # phantom duplicate of a document that no longer exists.
+    #
+    # Pruning is only safe when this run covered *everything*: a skipped step, a
+    # capped OCR pass, a --docs folder that wasn't there, or a step that exited
+    # non-zero all mean the record is partial, and deleting "unrecorded" files
+    # would throw away good extractions. Any of those disables the prune.
+    record_path = os.path.join(scratch, "produced.txt")
+    try:
+        if os.path.exists(record_path):
+            os.remove(record_path)
+    except OSError:
+        pass
+    complete = not (args.skip_docs or args.skip_ocr or args.ocr_limit)
+
     print(f"== reindex_all ==\n vault:     {vault}\n scratch:   {scratch}\n embed:     {not args.no_embed}")
 
     # 1) source-doc text
     if not args.skip_docs:
         for d in args.docs:
             if os.path.isdir(d):
-                run([py, os.path.join(HERE, "extract_text.py"), d, extracted])
+                if run([py, os.path.join(HERE, "extract_text.py"), d, extracted,
+                        "--record", record_path]) != 0:
+                    complete = False
             else:
                 print(f"  [skip] docs folder not found: {d}")
+                complete = False
 
     # 2) drawing OCR (native-first, OCR fallback)
     if not args.skip_ocr:
         for d in args.drawings:
             if os.path.isdir(d):
-                cmd = [py, os.path.join(HERE, "ocr_drawings.py"), d, extracted]
+                cmd = [py, os.path.join(HERE, "ocr_drawings.py"), d, extracted,
+                       "--record", record_path]
                 if args.ocr_limit:
                     cmd += ["--limit", str(args.ocr_limit)]
-                run(cmd)
+                if run(cmd) != 0:
+                    complete = False
             else:
                 print(f"  [skip] drawings folder not found: {d}")
+                complete = False
+
+    # 2b) prune extracted text with no live source behind it
+    if args.keep_stale:
+        pass
+    elif not complete:
+        print("  [prune] skipped: this run did not cover every source, so the "
+              "live-file record is partial.")
+    elif os.path.exists(record_path):
+        live = {l.strip() for l in open(record_path, encoding="utf-8") if l.strip()}
+        live.add("INVENTORY.md")
+        stale = [f for f in os.listdir(extracted) if f not in live]
+        for f in stale:
+            try:
+                os.remove(os.path.join(extracted, f))
+            except OSError as e:
+                print(f"  [prune] could not remove {f}: {e}")
+        print(f"  [prune] {len(stale)} stale extracted file(s) removed, "
+              f"{len(live)-1} live")
 
     # 3) index (vault notes + everything we just extracted)
     idx = [py, os.path.join(HERE, "rag_index.py"), vault, "--source", extracted]

@@ -147,9 +147,12 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--lang", default="eng")
+    ap.add_argument("--record", default=None,
+                    help="append basenames of live outputs here (for stale pruning)")
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
+    record = open(args.record, "a", encoding="utf-8") if args.record else None
     pats = args.glob or ["*.pdf", "*.PDF"]
     pdfs = []
     for pat in pats:
@@ -172,6 +175,8 @@ def main():
             try:
                 if os.path.getmtime(out_txt) >= os.path.getmtime(pdf):
                     n_skip += 1
+                    if record:
+                        record.write(os.path.basename(out_txt) + "\n")
                     continue
             except OSError:
                 pass
@@ -208,9 +213,13 @@ def main():
         try:
             with open(out_txt, "w", encoding="utf-8") as f:
                 f.write(header + (txt or ""))
+            if record:
+                record.write(os.path.basename(out_txt) + "\n")
         except OSError as e:
             print(f"  ! could not write {out_txt}: {e}")
 
+    if record:
+        record.close()
     print(f"  drawings: {len(pdfs)}  native: {n_native}  ocr: {n_ocr}  "
           f"skipped(up-to-date): {n_skip}  unreadable: {n_unreadable}"
           + (f"  need-ocr(no tesseract): {n_need_ocr}" if n_need_ocr else ""))
