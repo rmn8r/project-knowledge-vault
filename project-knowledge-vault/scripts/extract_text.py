@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Batch-extract text from a project document folder into a scratch dir.
 
-Usage:  python extract_text.py <source_dir> <out_dir>
+Usage:  python extract_text.py <source_dir> <out_dir> [--force]
+
+Incremental: a source whose extracted .txt is at least as new as it is gets
+skipped. Pass --force to re-extract everything.
 
 Handles PDF (pdftotext), XLSX (openpyxl), PPTX (slide XML), CSV/TXT, and .msg (strings).
 Writes one <name>.txt per source and an INVENTORY.md (file list + sizes + PDF page counts).
@@ -189,8 +192,10 @@ def main():
     if len(sys.argv) < 3:
         print(__doc__); sys.exit(1)
     src, out = sys.argv[1], sys.argv[2]
+    force = "--force" in sys.argv[3:]
     os.makedirs(out, exist_ok=True)
     inv = []
+    n_cached = 0
     for root, _, files in os.walk(src):
         for fn in sorted(files):
             p = os.path.join(root, fn)
@@ -199,6 +204,18 @@ def main():
             size = os.path.getsize(p) // 1024
             base = safe(os.path.splitext(rel.replace(os.sep, "__"))[0])
             txt = out_path(out, base)
+            # Incremental, matching ocr_drawings.py. The nightly job re-walks the
+            # whole tree; re-extracting thousands of unchanged documents is the
+            # difference between a few minutes and a couple of hours, and the
+            # scheduled task has a 3-hour ceiling.
+            if not force and os.path.exists(txt):
+                try:
+                    if os.path.getmtime(txt) >= os.path.getmtime(p):
+                        n_cached += 1
+                        inv.append((rel, f"{size} KB", "", "ok (cached)"))
+                        continue
+                except OSError:
+                    pass
             pages = ""
             ok = False
             if ext == "pdf":
@@ -218,7 +235,8 @@ def main():
         f.write("# Source Inventory\n\n| File | Size | Pages | Extract |\n|---|---|---|---|\n")
         for rel, size, pages, status in inv:
             f.write(f"| {rel} | {size} | {pages} | {status} |\n")
-    print(f"\nInventory: {len(inv)} files -> {os.path.join(out,'INVENTORY.md')}")
+    print(f"\nInventory: {len(inv)} files "
+          f"({n_cached} unchanged, skipped) -> {os.path.join(out,'INVENTORY.md')}")
 
 if __name__ == "__main__":
     main()
