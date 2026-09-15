@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Windows Task Scheduler definition for the PHX069 RAG re-index.
+  Runs daily at 08:00; if the machine was off/asleep at 08:00, it runs as soon as
+  possible after wake/logon (StartWhenAvailable = "run if a scheduled start was
+  missed"). The re-index is incremental, so it always picks up only what changed
+  since the last successful run ("from last update").
+
+  Register (from an elevated or normal PowerShell/CMD):
+    schtasks /Create /TN "PHX069 RAG reindex" /XML "C:\Users\RajanR\OneDrive - Clayco, Inc\Documents\AWS Avondale TI\69\pkv-skill-update\scripts\phx069-rag-reindex.task.xml" /F
+  Run it once now to test:
+    schtasks /Run /TN "PHX069 RAG reindex"
+  Remove:
+    schtasks /Delete /TN "PHX069 RAG reindex" /F
+-->
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>PHX069 RAG re-index — daily 8am, catches up if the scheduled start was missed. Incremental (only changes since last update).</Description>
+    <URI>\PHX069 RAG reindex</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-01-01T08:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <!-- the "from last update" behavior: run ASAP if 8am was missed (laptop off/asleep) -->
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <!-- allow on a laptop that isn't plugged in -->
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <ExecutionTimeLimit>PT3H</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT15M</Interval>
+      <Count>2</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>cmd.exe</Command>
+      <Arguments>/c "C:\Users\RajanR\OneDrive - Clayco, Inc\Documents\AWS Avondale TI\69\pkv-skill-update\scripts\reindex_phx069.cmd"</Arguments>
+    </Exec>
+  </Actions>
+</Task>

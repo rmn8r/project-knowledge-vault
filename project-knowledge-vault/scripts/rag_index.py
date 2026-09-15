@@ -47,11 +47,13 @@ This file writes NOTHING outside <index>/. It only reads the vault/source dirs.
 """
 import os, sys, re, json, hashlib, argparse, time, glob
 
-# Vault text (and the em dashes used below) can contain characters outside a
-# Windows console's default codepage; force UTF-8 so printing never crashes.
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+# Force UTF-8 on stdout/stderr so non-ASCII vault text (e.g. "→", "§") doesn't
+# crash on a Windows console's default codepage. (Matches the GitHub fix.)
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
 FALLBACK_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -75,10 +77,12 @@ def _load_model(name):
     for cand in [name, FALLBACK_MODEL]:
         try:
             m = SentenceTransformer(cand)
-            # get_embedding_dimension() replaces get_sentence_embedding_dimension() in
-            # newer sentence-transformers; support both old and new installs.
-            get_dim = getattr(m, "get_embedding_dimension", None) or m.get_sentence_embedding_dimension
-            dim = get_dim()
+            # get_sentence_embedding_dimension() is deprecated in newer
+            # sentence-transformers; prefer get_embedding_dimension(). (Matches GitHub fix.)
+            try:
+                dim = m.get_embedding_dimension()
+            except Exception:
+                dim = m.get_sentence_embedding_dimension()
             print(f"  [embed] loaded local model: {cand} (dim={dim})")
             return m, dim, cand
         except Exception as e:
@@ -230,7 +234,8 @@ def split_by_size(text, chunk_chars, overlap):
 def iter_files(vault_dir, source_dirs):
     """Yield (abs_path, relpath, kind). kind in {'note','source'}."""
     for f in glob.glob(os.path.join(vault_dir, "**", "*.md"), recursive=True):
-        if os.sep + ".rag" + os.sep in f:
+        # skip our own caches inside the vault: .rag/ (index) and .rag_source/ (scratch text)
+        if re.search(r"[\\/]\.rag(_source)?[\\/]", f):
             continue
         yield f, os.path.relpath(f, vault_dir), "note"
     for sd in source_dirs or []:

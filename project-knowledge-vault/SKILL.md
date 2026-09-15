@@ -102,7 +102,7 @@ For a maintained vault, add **semantic recall** on top of `[[wikilinks]]` + keyw
 
 ```bash
 # on a machine with the model available (one-time dep, then reuse):
-pip install -r scripts/requirements-rag.txt
+pip install "sentence-transformers>=2.6"
 python scripts/rag_index.py "<Project> Vault"                 # writes <vault>/.rag/ (incremental)
 python scripts/rag_index.py "<Project> Vault" --source ./_scratch/extracted   # + raw source text
 python scripts/rag_index.py "<Project> Vault" --no-embed      # fast lexical-only pass (any env)
@@ -111,7 +111,9 @@ python scripts/rag_query.py "<Project> Vault" "who owns the annunciator wiring"
 python scripts/rag_query.py "<Project> Vault" "MCBU" --path Equipment    # path/tag/kind filters
 python scripts/rag_query.py "<Project> Vault" "battery cabinets" --json   # for programmatic use
 ```
-Each hit prints **note path + heading + section IDs + score** — quote and cite the source note, then answer (same "answer first, cite the source" habit as manual Q&A). Index only vault notes by default (the curated layer); add drawings via their per-sheet metadata notes, not raw drawing text. Add `.rag/` to ignore lists — it's a rebuildable cache, and because it can hold verbatim confidential passages, keep it in the private folder, never publish it.
+Each hit prints **note path + heading + section IDs + score** — quote and cite the source note, then answer (same "answer first, cite the source" habit as manual Q&A). Index the curated notes first; for deeper recall add source-doc text (`--source`) and, for stamped drawings, OCR (`ocr_drawings.py`) — but the graphical content still lives best in per-sheet metadata notes, so OCR is the safety net, not the system of record. Add `.rag/` and `.rag_source/` to ignore lists — both are rebuildable local caches that can hold verbatim confidential passages; keep them in the private folder, never publish them.
+
+**Keeping it fresh (it is not auto-learning).** The index is a snapshot: it reflects the vault only after findings are **logged into notes** (the Living-vault habit) and a **re-index** runs. `reindex_all.py` does extract + OCR + index in one incremental pass; wire it to a **nightly scheduled task on the machine that has the model** (the sandbox can't embed). So "learns after each chat" = *log the finding, then the nightly re-index picks it up*.
 
 ---
 ## File organization (keep the project tidy)
@@ -273,6 +275,9 @@ After running either script, re-run the audit and confirm 0 unresolved / 0 orpha
 - `scripts/verify_links.py` — link check (note: guard reads / prefer the embedded resilient **audit** above on cloud-synced vaults).
 - `scripts/rag_index.py` — build/refresh the local hybrid RAG index (`.rag/` in the vault). Local embeddings, incremental, lexical-only fallback. `python rag_index.py "<vault>" [--source <dir>] [--no-embed]`.
 - `scripts/rag_query.py` — hybrid (BM25 + dense, RRF-fused) retrieval with path/tag filters and cited passages. `python rag_query.py "<vault>" "<question>" [-k N] [--json]`.
+- `scripts/ocr_drawings.py` — native-text + OCR a drawing set to text for indexing (pdftotext, then pdftoppm→tesseract for image-only sheets); incremental. `python ocr_drawings.py "<drawings>" "<out>"`.
+- `scripts/reindex_all.py` — one-command refresh: extract source docs + OCR drawings + `rag_index.py`, all incremental. What a nightly scheduled task runs. `python reindex_all.py --vault "<vault>" --docs "<specs>" --drawings "<dwgs>"`.
+- `scripts/requirements-rag.txt` — pins the optional embedding deps (numpy, sentence-transformers).
 
 ## Principles
 - **Organize outputs, don't dump them.** Every generated file lands in the topic subfolder that fits (create one if needed); the project root stays clean; the deliverables index + folder map stay current.

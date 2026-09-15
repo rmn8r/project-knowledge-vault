@@ -30,11 +30,13 @@ Exit code 2 if no index is found.
 import os, sys, re, json, math, argparse
 from collections import Counter, defaultdict
 
-# Vault text (and the arrows/dashes used below) can contain characters outside a
-# Windows console's default codepage; force UTF-8 so printing never crashes.
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+# Force UTF-8 on stdout/stderr so non-ASCII passages don't crash a Windows
+# console's default codepage. (Matches the GitHub fix.)
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------- load index
 def find_index(path):

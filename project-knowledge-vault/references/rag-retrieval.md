@@ -48,7 +48,7 @@ embedding build must run where the model can be fetched/cached — the **user's 
 (the one that syncs the vault) or CI:
 
 ```bash
-pip install -r scripts/requirements-rag.txt        # pulls torch; one-time
+pip install "sentence-transformers>=2.6"          # pulls torch; one-time
 python scripts/rag_index.py "<Project> Vault"      # writes <vault>/.rag/
 ```
 
@@ -87,6 +87,29 @@ python scripts/rag_query.py "<Project> Vault" "…" --lexical                   
 so the agent quotes and cites the source note, then answers — same "answer first, cite the
 source" habit as manual vault Q&A. Use `--json` to feed results into another step.
 
+## Full refresh & nightly cadence
+Two helpers turn the "notes-only" index into a full-coverage, self-maintaining one:
+- **`ocr_drawings.py`** — exports drawing text for indexing: native text (`pdftotext`)
+  first, then `pdftoppm`→`tesseract` OCR for stamped/image-only sheets. Incremental;
+  tolerant of cloud-only files. Output goes to a scratch dir you feed to `--source`.
+- **`reindex_all.py`** — one command that runs *extract source docs → OCR drawings →
+  `rag_index.py`*, all incremental. Default scratch is `<vault>/.rag_source/` (a
+  dot-folder inside the vault, ignored by the indexer and kept out of the project root).
+
+```bash
+# full deep build (notes + specs/contracts/submittals + OCR'd drawings, with embeddings)
+python scripts/reindex_all.py --vault "<Project> Vault" \
+  --docs "Drawings & Specs/Specifications" --docs "Subcontracts" --docs "Submittals" \
+  --drawings "Drawings & Specs" --rebuild
+```
+
+**Nightly cadence.** Register `reindex_all.py` as a scheduled task **on the machine
+that has the model** (Windows Task Scheduler / cron). Runs are incremental, so nightly
+is cheap. This automates the *re-index* — it does **not** capture chat findings by
+itself; those enter only when they're logged into notes (Living-vault). OCR of stamped
+drawings is noisy (good for titles/notes/schedules, weak for one-line topology), so the
+per-sheet metadata notes remain the system of record; OCR is the safety net.
+
 ## Index layout (`<vault>/.rag/`)
 | File | Contents |
 |---|---|
@@ -103,4 +126,3 @@ source docs: keep it in the private project folder, don't publish it.
 - Required: Python 3.9+ (stdlib only for the lexical path).
 - Optional (enables semantic leg): `numpy`, `sentence-transformers` (default model
   `BAAI/bge-small-en-v1.5`, falls back to `sentence-transformers/all-MiniLM-L6-v2`).
-  Pinned in `scripts/requirements-rag.txt` — `pip install -r scripts/requirements-rag.txt`.
