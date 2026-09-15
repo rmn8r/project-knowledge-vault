@@ -45,7 +45,7 @@ Outputs (in <index>/):
 
 This file writes NOTHING outside <index>/. It only reads the vault/source dirs.
 """
-import os, sys, re, json, hashlib, argparse, time, glob, collections
+import os, sys, re, json, hashlib, argparse, time, glob, collections, gc
 
 # Force UTF-8 on stdout/stderr so non-ASCII vault text (e.g. "→", "§") doesn't
 # crash on a Windows console's default codepage. (Matches the GitHub fix.)
@@ -375,9 +375,13 @@ def build(args):
         if model is not None:
             # reuse prior vectors for unchanged chunks when possible
             prior_vecs = {}
+            prev = None
             if os.path.exists(emb_path) and os.path.exists(chunks_path) and not args.rebuild:
                 try:
-                    prev = np.load(emb_path)
+                    # mmap: the previous matrix is the same 6 GB the build just
+                    # streamed out, and an incremental run only needs to copy the
+                    # rows it still has a use for.
+                    prev = np.load(emb_path, mmap_mode="r")
                     prev_ids = [json.loads(l)["id"] for l in open(chunks_path, encoding="utf-8")]
                     if len(prev_ids) == prev.shape[0]:
                         prior_vecs = {cid: prev[i] for i, cid in enumerate(prev_ids)}
@@ -393,9 +397,18 @@ def build(args):
             # of prefixed texts; on a real project corpus (millions of chunks,
             # ~6 GB of vectors) that exhausts memory long before it finishes.
             # A memmap keeps peak RAM flat at one batch regardless of corpus size.
+            # Build into a sibling file, then swap: on an incremental run
+            # prior_vecs still maps the *current* embeddings.npy, so opening that
+            # same path "w+" would truncate the file out from under it.
             os.makedirs(os.path.dirname(emb_path) or ".", exist_ok=True)
+            emb_building = emb_path + ".building.npy"
+            if os.path.exists(emb_building):
+                try:
+                    os.remove(emb_building)   # stale, from an interrupted run
+                except OSError:
+                    pass
             emb_matrix = np.lib.format.open_memmap(
-                emb_path, mode="w+", dtype="float32", shape=(len(all_chunks), dim))
+                emb_building, mode="w+", dtype="float32", shape=(len(all_chunks), dim))
             row_of = {c["id"]: i for i, c in enumerate(all_chunks)}
             for cid, v in prior_vecs.items():
                 i = row_of.get(cid)
@@ -420,6 +433,19 @@ def build(args):
                     print(f"    {done}/{len(need)} chunks  ({rate:.0f}/s, "
                           f"eta {(len(need)-done)/max(rate,1e-6)/60:.0f} min)", flush=True)
             emb_matrix.flush()
+            # Release every mapping of both files before the swap: Windows
+            # refuses to replace a file that still has one open, and dropping the
+            # last Python reference is not enough - close the mmap explicitly.
+            del emb_matrix
+            if prev is not None:
+                try:
+                    prev._mmap.close()
+                except Exception:
+                    pass
+                prev = None
+            gc.collect()
+            os.replace(emb_building, emb_path)
+            emb_matrix = True
     elif args.no_embed:
         print("  [embed] skipped (--no-embed): lexical-only index")
     else:
@@ -430,9 +456,7 @@ def build(args):
         for c in all_chunks:
             f.write(json.dumps(c, ensure_ascii=False) + "\n")
     if emb_matrix is not None:
-        # already written in place by the memmap above
-        del emb_matrix
-        emb_matrix = True
+        pass  # already written and swapped into place by the memmap above
     elif os.path.exists(emb_path) and (args.no_embed or args.rebuild):
         # Drop stale vectors for a lexical-only/rebuild pass. On cloud-synced
         # folders the file may be locked (OneDrive) and un-deletable — in that
