@@ -7,7 +7,7 @@ Handles PDF (pdftotext), XLSX (openpyxl), PPTX (slide XML), CSV/TXT, and .msg (s
 Writes one <name>.txt per source and an INVENTORY.md (file list + sizes + PDF page counts).
 Text is *working data* for building the vault, not part of the vault itself.
 """
-import os, sys, re, subprocess, zipfile, shutil
+import os, sys, re, subprocess, zipfile, shutil, hashlib
 
 def sh(cmd):
     return subprocess.run(cmd, capture_output=True, text=True)
@@ -74,6 +74,19 @@ def extract_msg(path, out):
 def safe(name):
     return re.sub(r"[^A-Za-z0-9._-]+", "_", name)
 
+def out_path(out_dir, base, ext=".txt", limit=250):
+    """Join out_dir/base+ext, shortening base if the result would exceed the
+    Windows MAX_PATH limit (260). Flattened relative paths from deep document
+    trees routinely blow past it, and pdftotext then writes nothing (the file
+    shows up as ERR and never reaches the index). Names that already fit are
+    returned untouched, so this never invalidates an existing incremental cache."""
+    p = os.path.join(out_dir, base + ext)
+    if len(p) <= limit:
+        return p
+    h = hashlib.sha1(base.encode("utf-8", "ignore")).hexdigest()[:8]
+    room = limit - len(out_dir) - len(os.sep) - len(ext) - 9
+    return os.path.join(out_dir, base[:max(room, 16)] + "_" + h + ext)
+
 def main():
     if len(sys.argv) < 3:
         print(__doc__); sys.exit(1)
@@ -87,7 +100,7 @@ def main():
             rel = os.path.relpath(p, src)
             size = os.path.getsize(p) // 1024
             base = safe(os.path.splitext(rel.replace(os.sep, "__"))[0])
-            txt = os.path.join(out, base + ".txt")
+            txt = out_path(out, base)
             pages = ""
             ok = False
             if ext == "pdf":

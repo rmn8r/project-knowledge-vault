@@ -32,7 +32,7 @@ Dependencies: poppler (pdftotext, pdftoppm, pdfinfo) and tesseract-ocr.
 If tesseract is missing, the script still exports whatever native text exists
 and reports which files would have needed OCR.
 """
-import os, sys, re, subprocess, shutil, argparse, glob, tempfile
+import os, sys, re, subprocess, shutil, argparse, glob, tempfile, hashlib
 
 def sh(cmd):
     try:
@@ -74,6 +74,19 @@ def ocr_pdf(pdf, dpi, lang):
 def safe(name):
     return re.sub(r"[^A-Za-z0-9._-]+", "_", name)
 
+def out_path(out_dir, base, ext=".txt", limit=250):
+    """Join out_dir/base+ext, shortening base if the result would exceed the
+    Windows MAX_PATH limit (260). Flattened relative paths from deep document
+    trees routinely blow past it, and pdftotext then writes nothing (the file
+    shows up as ERR and never reaches the index). Names that already fit are
+    returned untouched, so this never invalidates an existing incremental cache."""
+    p = os.path.join(out_dir, base + ext)
+    if len(p) <= limit:
+        return p
+    h = hashlib.sha1(base.encode("utf-8", "ignore")).hexdigest()[:8]
+    room = limit - len(out_dir) - len(os.sep) - len(ext) - 9
+    return os.path.join(out_dir, base[:max(room, 16)] + "_" + h + ext)
+
 def main():
     ap = argparse.ArgumentParser(description="OCR/extract a drawing set to text for RAG.")
     ap.add_argument("drawings_dir")
@@ -103,7 +116,7 @@ def main():
     n_native = n_ocr = n_skip = n_unreadable = n_need_ocr = 0
     for pdf in pdfs:
         rel = os.path.relpath(pdf, args.drawings_dir)
-        out_txt = os.path.join(args.out_dir, safe(rel) + ".txt")
+        out_txt = out_path(args.out_dir, safe(rel))
         # incremental skip
         if not args.force and os.path.exists(out_txt):
             try:
