@@ -53,6 +53,8 @@ python scripts/rag_index.py "<Project> Vault"      # writes <vault>/.rag/
 ```
 
 After that, the on-disk index syncs with the vault and any environment can **query** it.
+Queries are cheap and flat in memory at any corpus size (see "What a query actually
+costs"), because the lexical index is precomputed and the dense matrix is streamed.
 If the model isn't available at query time, queries fall back to lexical-only
 automatically. Good cadence: a **scheduled task** on the user's machine re-runs
 `rag_index.py` after docs are added (ties into the skill's Update/Sync modes).
@@ -117,6 +119,50 @@ per-sheet metadata notes remain the system of record; OCR is the safety net.
 | `embeddings.npy` | float32 `[N, D]`, row-aligned to `chunks.jsonl` (only if embedded) |
 | `manifest.json` | `{relpath: {hash, mtime, n_chunks}}` for incremental rebuilds |
 | `meta.json` | model, dim, counts, `embedded` flag, build time, config |
+| `chunk_offsets.npy` | int64 byte offset of each chunk's line — lets a query seek the few passages it prints instead of parsing the file |
+| `chunk_pathid.npy`, `chunk_kind.npy`, `paths.txt`, `path_tags.json` | small columns so `--path` / `--kind` / `--tag` filter without reading any chunk body |
+| `lex_*` (8 files) | the precomputed BM25 index — sorted vocabulary + per-term postings. See below. |
+
+### The precomputed BM25 index
+`rag_query.py` used to build BM25 in memory on **every query**: parse all of
+`chunks.jsonl`, tokenize every chunk, one `Counter` per chunk. That is instant for a
+few hundred notes and fatal at scale — on a 3.93M-chunk vault it needed ~27 GB and
+ran for minutes per question. `rag_lexical.py` moves that to build time:
+
+| File | Contents |
+|---|---|
+| `lex_terms.txt` + `lex_termoff.npy` | sorted vocabulary, binary-searched; never loaded |
+| `lex_start.npy`, `lex_count.npy`, `lex_idf.npy` | per-term postings slice + precomputed idf |
+| `lex_docs.npy`, `lex_tf.npy` | postings grouped by term (int32 chunk row, uint8 saturating tf) |
+| `lex_doclen.npy` | per-chunk token count |
+| `lex_meta.json` | counts, `avgdl`, `k1`/`b`, tokenizer version |
+
+A query reads only the postings of its own terms, so cost tracks the question rather
+than the corpus. No term is dropped (not even stopwords), so scores are unchanged, not
+approximated — verified against the old implementation over 68 queries: worst score
+delta 1.9e-06 and zero changes in top-8 ordering.
+
+Two guards matter. The postings store **row positions** in `chunks.jsonl`, so
+`rag_index.py` deletes the whole `lex_*` set before rewriting chunks, and
+`Lexical.usable_for()` refuses a set whose `n_chunks`/tokenizer version don't match —
+scoring drifted rows would be silently wrong rather than obviously broken. An index
+built before these files existed still queries correctly via a streaming fallback.
+
+### What a query actually costs
+Measured on the 3.93M-chunk / 6,836-file PHX069 vault (13 GB index, laptop NVMe):
+
+| | time | peak RAM |
+|---|---|---|
+| `--lexical` (identifiers: E565, MCBU, "26 08 01") | **0.7 s** | ~90 MB |
+| `--lexical --path <substr>` | **0.6 s** | ~90 MB |
+| full hybrid | **26 s** | **2.6 GB** |
+| full hybrid, `--dense-pool 20000` | 19 s | 2.6 GB |
+| *(the same hybrid query before this rework)* | *never finished* | *~27 GB* |
+
+Of the hybrid 26 s, ~12 s is importing `torch` and ~3 s is loading the model — fixed
+per process, nothing to do with corpus size — and ~11 s streams `embeddings.npy`.
+`--lexical` skips the import entirely, which is why it is sub-second. Reach for it
+whenever the question contains the identifier you are looking for.
 
 Add `.rag/` to `.gitignore` / `.obsidian` ignore — it's a rebuildable cache, not a note.
 Because it can hold verbatim passages of confidential source text, treat it like the

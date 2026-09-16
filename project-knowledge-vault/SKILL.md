@@ -110,7 +110,16 @@ python scripts/rag_index.py "<Project> Vault" --no-embed      # fast lexical-onl
 python scripts/rag_query.py "<Project> Vault" "who owns the annunciator wiring"
 python scripts/rag_query.py "<Project> Vault" "MCBU" --path Equipment    # path/tag/kind filters
 python scripts/rag_query.py "<Project> Vault" "battery cabinets" --json   # for programmatic use
+python scripts/rag_query.py "<Project> Vault" "E565" --lexical            # sub-second; no torch
 ```
+**Query cost.** A hybrid query pays a fixed ~15 s to import `torch` and load the
+model, then streams the vectors; `--lexical` skips that entirely and answers in well
+under a second, so prefer it whenever the question already contains the identifier
+(`E565`, `MCBU`, `26 08 01`). Both are flat in memory (~2.6 GB hybrid / ~90 MB
+lexical) at any corpus size, because `rag_index.py` precomputes the BM25 postings
+(`rag_lexical.py`) and the query memory-maps them instead of rebuilding the index per
+question. If a hybrid query ever runs for minutes and climbs past 20 GB, the `lex_*`
+files are missing or stale — re-run `rag_index.py`.
 Each hit prints **note path + heading + section IDs + score** — quote and cite the source note, then answer (same "answer first, cite the source" habit as manual Q&A). Index the curated notes first; for deeper recall add source-doc text (`--source`) and, for stamped drawings, OCR (`ocr_drawings.py`) — but the graphical content still lives best in per-sheet metadata notes, so OCR is the safety net, not the system of record. Add `.rag/` and `.rag_source/` to ignore lists — both are rebuildable local caches that can hold verbatim confidential passages; keep them in the private folder, never publish them.
 
 **Keeping it fresh (it is not auto-learning).** The index is a snapshot: it reflects the vault only after findings are **logged into notes** (the Living-vault habit) and a **re-index** runs. `reindex_all.py` does extract + OCR + index in one incremental pass; wire it to a **nightly scheduled task on the machine that has the model** (the sandbox can't embed). So "learns after each chat" = *log the finding, then the nightly re-index picks it up*.

@@ -66,6 +66,12 @@ python pkv-skill-update\scripts\rag_query.py "AWS Avondale 069 Vault" "MCBU MCBG
 The header line should read **`mode: hybrid (BM25 + BAAI/bge-small-en-v1.5)`** (not
 "lexical-only"). If it says lexical-only, the model didn't load — re-check step 0.
 
+Expect ~26 s for a hybrid query and **under a second** for `--lexical`. If a hybrid
+query instead runs for minutes and balloons past 20 GB, the precomputed BM25 files are
+missing or stale for this `chunks.jsonl` (`rag_query.py` says so on stderr) — re-run
+`rag_index.py` to regenerate them. Use `--lexical` for exact identifiers; it skips the
+`torch` import that dominates hybrid latency.
+
 ## 4. Daily re-index at 8am, with catch-up if the machine was off
 A work laptop is usually off overnight, so a 2:30am task never fires. This runs at
 **08:00**, and if the machine was off/asleep at 8 it runs **as soon as possible after
@@ -122,9 +128,15 @@ learn from chats on its own.
 - **Confidentiality:** local model, local `.rag/` + `.rag_source/`. Nothing is sent
   to any third party. Both caches hold verbatim passages — keep them private.
 - **Size:** budget for it. This corpus extracts to ~3.5 GB of text and indexes to
-  3.9M chunks: ~6 GB of vectors plus a multi-GB `chunks.jsonl`. `rag_index.py`
-  streams embeddings into a memory-mapped array, so peak RAM stays flat, but the
-  disk footprint is real.
+  3.9M chunks: ~5.7 GB of vectors, a ~5.6 GB `chunks.jsonl`, and ~1 GB of
+  precomputed-BM25 and column files — **~13 GB of `.rag/`**, all of which syncs if
+  you leave it in the vault. `rag_index.py` streams embeddings into a memory-mapped
+  array and builds postings in two streaming passes, so peak RAM stays flat, but the
+  disk and sync footprint is real.
+- **Nightly cost:** the postings store row positions in `chunks.jsonl`, so they are
+  rebuilt in full on every run — measured at 7 min (2.8 min counting document
+  frequencies, 4.2 min writing 167.8M postings) inside an 11-minute nightly here. Vectors are *not* rebuilt: reuse is keyed on chunk text, so
+  an unchanged corpus re-embeds nothing (`reused 3928172`, `embedding 0`).
 - **Coverage reality:** OCR of stamped drawings is noisy — it makes titles, notes, and
   schedule text searchable, but the *graphical* content (one-line topology, terminal
   wiring) still lives best in the per-sheet metadata notes. Log the details that matter
