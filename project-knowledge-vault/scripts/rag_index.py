@@ -46,6 +46,8 @@ Outputs (in <index>/):
 This file writes NOTHING outside <index>/. It only reads the vault/source dirs.
 """
 import os, sys, re, json, hashlib, argparse, time, glob, collections, gc
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import rag_lexical
 
 # Force UTF-8 on stdout/stderr so non-ASCII vault text (e.g. "→", "§") doesn't
 # crash on a Windows console's default codepage. (Matches the GitHub fix.)
@@ -465,9 +467,47 @@ def build(args):
         print("  [embed] numpy not available: lexical-only index")
 
     # 5) write index
-    with open(chunks_path, "w", encoding="utf-8") as f:
+    # Record each chunk's byte offset as we go, so rag_query.py can seek straight
+    # to the handful of passages it wants to display instead of parsing the whole
+    # file (which is multi-GB on a real corpus).
+    # Alongside it, small per-chunk columns so rag_query.py can apply --path /
+    # --kind / --tag filters without reading a single chunk body.
+    offsets = []
+    pathids = []
+    kinds = []
+    path_ix = {}
+    path_list = []
+    path_tags = {}
+    pos = 0
+    with open(chunks_path, "w", encoding="utf-8", newline="\n") as f:
         for c in all_chunks:
-            f.write(json.dumps(c, ensure_ascii=False) + "\n")
+            line = json.dumps(c, ensure_ascii=False) + "\n"
+            offsets.append(pos)
+            pos += len(line.encode("utf-8"))
+            f.write(line)
+            rel = c["path"]
+            pid = path_ix.get(rel)
+            if pid is None:
+                pid = path_ix[rel] = len(path_list)
+                path_list.append(rel)
+                if c.get("tags"):
+                    path_tags[rel] = c["tags"]
+            pathids.append(pid)
+            kinds.append(0 if c.get("kind") == "note" else 1)
+    if np is not None:
+        np.save(os.path.join(index_dir, "chunk_offsets.npy"),
+                np.asarray(offsets, dtype="int64"))
+        np.save(os.path.join(index_dir, "chunk_pathid.npy"),
+                np.asarray(pathids, dtype="int32"))
+        np.save(os.path.join(index_dir, "chunk_kind.npy"),
+                np.asarray(kinds, dtype="uint8"))
+        with open(os.path.join(index_dir, "paths.txt"), "w",
+                  encoding="utf-8", newline="\n") as f:
+            for rel in path_list:
+                f.write(rel.replace("\n", " ") + "\n")
+        json.dump(path_tags, open(os.path.join(index_dir, "path_tags.json"), "w"),
+                  ensure_ascii=False)
+    del offsets, pathids, kinds, path_ix, path_list, path_tags
     if emb_matrix is not None:
         pass  # already written and swapped into place by the memmap above
     elif os.path.exists(emb_path) and (args.no_embed or args.rebuild):
@@ -506,8 +546,26 @@ def build(args):
     )
     json.dump(meta, open(meta_path, "w"), indent=2)
 
+    # 6) precomputed BM25. Must come after chunks.jsonl is final, and the row ids
+    # it stores are positions in that file - so clear the old set first: a stale
+    # lexical index read against rewritten chunks would score the wrong rows.
+    n_written = len(all_chunks)
+    all_chunks = None
+    per_file = None
+    gc.collect()
+    rag_lexical.clear(index_dir)
+    if np is not None:
+        try:
+            rag_lexical.build(index_dir, chunks_path)
+        except Exception as e:
+            print(f"  [lex] FAILED ({e.__class__.__name__}: {e}); "
+                  f"queries will fall back to scanning chunks.jsonl.")
+            rag_lexical.clear(index_dir)
+    else:
+        print("  [lex] numpy not available; skipping precomputed BM25.")
+
     print(f"  wrote {index_dir}/  (embedded={meta['embedded']}, "
-          f"model={model_name or 'none — lexical only'})")
+          f"model={model_name or 'none — lexical only'}, chunks={n_written})")
     print("  done.")
 
 def main():

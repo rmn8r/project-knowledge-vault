@@ -3,8 +3,8 @@
 rag_query.py — Hybrid retrieval over the local index built by rag_index.py.
 
 Part of the `project-knowledge-vault` skill. Combines:
-  * LEXICAL (BM25, pure-Python) — nails exact identifiers that matter in technical
-    docs (E565, XMS1, MCBU, "26 08 01", "Part 3 item 41", X-61). ID-aware tokenizer.
+  * LEXICAL (BM25) — nails exact identifiers that matter in technical docs
+    (E565, XMS1, MCBU, "26 08 01", "Part 3 item 41", X-61). ID-aware tokenizer.
   * SEMANTIC (dense cosine over local embeddings) — catches the concept when the
     caller doesn't know the exact tag ("who owns the wire to the annunciator").
 The two ranked lists are merged with Reciprocal Rank Fusion (RRF). If the index has
@@ -12,6 +12,17 @@ no embeddings (deps absent at index time), it runs lexical-only automatically.
 
 Everything is local; no network calls. The query is embedded with the same local
 model recorded in meta.json.
+
+SCALE
+Nothing here loads the corpus. The BM25 index is precomputed by rag_index.py (see
+rag_lexical.py) and memory-mapped, so a query reads only the postings of its own
+terms. The dense pass streams embeddings.npy in blocks rather than loading it, and
+result text is fetched by byte offset — only the passages actually shown are
+parsed. Peak memory is a few hundred MB regardless of corpus size.
+
+An index built before the precomputed BM25 existed still works: the lexical leg
+falls back to scanning chunks.jsonl, which is correct but slow and memory-hungry
+on a large vault. Re-run rag_index.py to get the fast path.
 
 Usage:
   python rag_query.py <vault_or_index_dir> "<question>" [options]
@@ -22,21 +33,38 @@ Options:
   --tag <tag>       only chunks carrying <tag> in frontmatter tags (repeatable; OR)
   --kind <k>        restrict to 'note' or 'source'
   --lexical         force lexical-only (ignore embeddings)
+  --dense-pool <n>  score dense only over the top-<n> lexical candidates instead
+                    of the whole corpus (much faster; loses pure-semantic recall
+                    for passages with no lexical overlap). 0 = full scan (default)
+  --block <n>       rows per block in the dense scan (default 200000)
   --json            emit JSON (for programmatic use) instead of formatted text
   --show-chars <n>  characters of each passage to print (default 600)
+  --timing          print per-stage timings to stderr
+  --encode-device   device used to embed the question (default cpu)
+
+COST NOTE
+A hybrid query spends ~12s importing torch before it can embed the question;
+that is fixed per process and unrelated to corpus size. `--lexical` skips the
+import entirely and answers in well under a second, which is what you want for
+exact-identifier lookups (E565, MCBU, "26 08 01").
 
 Exit code 2 if no index is found.
 """
-import os, sys, re, json, math, argparse
-from collections import Counter, defaultdict
+import os, sys, re, json, math, argparse, time
+from collections import defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import rag_lexical
+from rag_lexical import tokenize, chunk_tokens
 
 # Force UTF-8 on stdout/stderr so non-ASCII passages don't crash a Windows
-# console's default codepage. (Matches the GitHub fix.)
+# console's default codepage.
 for _s in (sys.stdout, sys.stderr):
     try:
         _s.reconfigure(encoding="utf-8")
     except Exception:
         pass
+
 
 # ---------------------------------------------------------------- load index
 def find_index(path):
@@ -47,15 +75,6 @@ def find_index(path):
         return cand
     return None
 
-def load_chunks(index_dir):
-    chunks = []
-    with open(os.path.join(index_dir, "chunks.jsonl"), encoding="utf-8") as f:
-        for line in f:
-            try:
-                chunks.append(json.loads(line))
-            except Exception:
-                pass
-    return chunks
 
 def load_meta(index_dir):
     try:
@@ -63,100 +82,228 @@ def load_meta(index_dir):
     except Exception:
         return {}
 
-# ---------------------------------------------------------------- tokenizer
-# Keep alphanumerics AND dotted section numbers so "e565", "xms1", "mcbu",
-# "26.08.01" survive; also split "260801" style. Lowercased.
-_TOKRE = re.compile(r"[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*")
-def tokenize(text):
-    toks = []
-    for m in _TOKRE.findall(text.lower()):
-        toks.append(m)
-        if "." in m:                      # also index the dotted parts
-            toks.extend(p for p in m.split(".") if p)
-    return toks
 
-# ---------------------------------------------------------------- BM25
-class BM25:
-    def __init__(self, docs_tokens, k1=1.5, b=0.75):
-        self.k1, self.b = k1, b
-        self.N = len(docs_tokens)
-        self.docs = docs_tokens
-        self.len = [len(d) for d in docs_tokens]
-        self.avgdl = (sum(self.len) / self.N) if self.N else 0.0
-        self.tf = [Counter(d) for d in docs_tokens]
-        df = Counter()
-        for d in docs_tokens:
-            for t in set(d):
-                df[t] += 1
-        self.idf = {}
-        for t, n in df.items():
-            # BM25+ style idf, always positive
-            self.idf[t] = math.log(1 + (self.N - n + 0.5) / (n + 0.5))
-
-    def scores(self, q_tokens):
-        scores = [0.0] * self.N
-        q = [t for t in q_tokens if t in self.idf]
-        for i in range(self.N):
-            if not self.len[i]:
-                continue
-            tf = self.tf[i]; dl = self.len[i]
-            s = 0.0
-            for t in q:
-                f = tf.get(t, 0)
-                if not f:
-                    continue
-                idf = self.idf[t]
-                s += idf * (f * (self.k1 + 1)) / (f + self.k1 * (1 - self.b + self.b * dl / self.avgdl))
-            scores[i] = s
-        return scores
-
-# ---------------------------------------------------------------- dense
-def dense_scores(index_dir, meta, query, idx_map):
-    """Return dict {chunk_row_index: cosine} or None if unavailable."""
-    if not meta.get("embedded"):
-        return None
+def _try_numpy():
     try:
         import numpy as np
+        return np
     except Exception:
+        return None
+
+
+class ChunkStore:
+    """Random access to chunks.jsonl by row, via the offsets rag_index.py wrote."""
+
+    def __init__(self, index_dir, np):
+        self.path = os.path.join(index_dir, "chunks.jsonl")
+        off = os.path.join(index_dir, "chunk_offsets.npy")
+        self.offsets = np.load(off, mmap_mode="r") if (np and os.path.exists(off)) else None
+        self._f = None
+
+    @property
+    def n(self):
+        return len(self.offsets) if self.offsets is not None else None
+
+    def get(self, rows):
+        """Return {row: chunk_dict} for the given rows."""
+        out = {}
+        if self.offsets is not None:
+            if self._f is None:
+                self._f = open(self.path, "rb")
+            for r in rows:
+                self._f.seek(int(self.offsets[r]))
+                try:
+                    out[r] = json.loads(self._f.readline().decode("utf-8", "replace"))
+                except Exception:
+                    pass
+            return out
+        # no offsets (pre-existing index): one sequential pass
+        want = set(rows)
+        with open(self.path, encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                if i in want:
+                    try:
+                        out[i] = json.loads(line)
+                    except Exception:
+                        pass
+                    if len(out) == len(want):
+                        break
+        return out
+
+
+# ---------------------------------------------------------------- filters
+def build_mask(index_dir, np, n, args):
+    """bool[n] of chunks allowed by --kind/--path/--tag, from the small columns."""
+    if not (args.kind or args.path or args.tag):
+        return None
+    pid_p = os.path.join(index_dir, "chunk_pathid.npy")
+    kind_p = os.path.join(index_dir, "chunk_kind.npy")
+    paths_p = os.path.join(index_dir, "paths.txt")
+    if not (os.path.exists(pid_p) and os.path.exists(paths_p)):
+        return "no-columns"
+    mask = np.ones(n, dtype=bool)
+    if args.kind and os.path.exists(kind_p):
+        kinds = np.load(kind_p, mmap_mode="r")
+        mask &= (np.asarray(kinds) == (0 if args.kind == "note" else 1))
+    if args.path or args.tag:
+        with open(paths_p, encoding="utf-8") as f:
+            paths = [l.rstrip("\n") for l in f]
+        keep_pids = set()
+        if args.path:
+            low = [p.lower() for p in args.path]
+            keep_pids |= {i for i, p in enumerate(paths)
+                          if any(s in p.lower() for s in low)}
+        if args.tag:
+            try:
+                ptags = json.load(open(os.path.join(index_dir, "path_tags.json"),
+                                      encoding="utf-8"))
+            except Exception:
+                ptags = {}
+            want = {t.lower() for t in args.tag}
+            tagged = {p for p, ts in ptags.items()
+                      if want & {str(t).lower() for t in ts}}
+            keep_pids |= {i for i, p in enumerate(paths) if p in tagged}
+        pids = np.load(pid_p, mmap_mode="r")
+        sel = np.zeros(len(paths) + 1, dtype=bool)
+        for i in keep_pids:
+            sel[i] = True
+        mask &= sel[np.asarray(pids)]
+    return mask
+
+
+# ---------------------------------------------------------------- lexical
+def lexical_scores(index_dir, np, n_chunks, q_tokens, log):
+    """Precomputed BM25 if present, else the old in-memory scan."""
+    if np is not None and rag_lexical.Lexical.available(index_dir):
+        lx = rag_lexical.Lexical(index_dir)
+        if lx.usable_for(n_chunks):
+            s = lx.scores(q_tokens)
+            lx.close()
+            return s, "precomputed"
+        lx.close()
+        log("  [lex] precomputed index is stale for this chunks.jsonl "
+            "(re-run rag_index.py); falling back to a full scan.")
+    return _lexical_scan(index_dir, np, n_chunks, q_tokens), "scan"
+
+
+def _lexical_scan(index_dir, np, n_chunks, q_tokens):
+    """Fallback for indexes built before the precomputed BM25 existed. Single
+    streaming pass: accumulate df and per-chunk tf for the query terms only, so
+    this is far lighter than the original all-chunks-in-RAM approach, though
+    still O(corpus) per query."""
+    qset = set(q_tokens)
+    if not qset:
+        return [0.0] * n_chunks
+    tfs = []
+    lens = []
+    df = {t: 0 for t in qset}
+    with open(os.path.join(index_dir, "chunks.jsonl"), encoding="utf-8") as f:
+        for line in f:
+            try:
+                c = json.loads(line)
+            except Exception:
+                tfs.append({}); lens.append(0); continue
+            ts = chunk_tokens(c)
+            lens.append(len(ts))
+            local = {}
+            for t in ts:
+                if t in qset:
+                    local[t] = local.get(t, 0) + 1
+            for t in local:
+                df[t] += 1
+            tfs.append(local)
+    N = len(lens)
+    avgdl = (sum(lens) / N) if N else 0.0
+    k1, b = rag_lexical.K1, rag_lexical.B
+    idf = {t: math.log(1 + (N - n + 0.5) / (n + 0.5)) for t, n in df.items()}
+    out = [0.0] * N
+    for i, local in enumerate(tfs):
+        if not local:
+            continue
+        dl = lens[i]
+        s = 0.0
+        for t, fq in local.items():
+            s += idf[t] * (fq * (k1 + 1)) / (fq + k1 * (1 - b + b * dl / avgdl))
+        out[i] = s
+    return out
+
+
+# ---------------------------------------------------------------- dense
+def dense_scores(index_dir, meta, query, np, n_chunks, mask, args, log):
+    """float32[n_chunks] cosine scores, or None. Streams embeddings.npy in
+    blocks: the matrix is gigabytes on a real corpus and must never be loaded."""
+    if not meta.get("embedded") or np is None:
         return None
     emb_path = os.path.join(index_dir, "embeddings.npy")
     if not os.path.exists(emb_path):
         return None
     try:
-        mat = np.load(emb_path)  # already L2-normalized at index time
+        mat = np.load(emb_path, mmap_mode="r")
     except Exception:
         return None
-    if mat.shape[0] != len(idx_map):
-        # index drifted from chunks; skip dense rather than mis-align
+    if mat.shape[0] != n_chunks:
+        log("  [dense] embeddings.npy does not match chunks.jsonl; skipping dense.")
         return None
     model_name = meta.get("model")
     try:
         from sentence_transformers import SentenceTransformer
-        m = SentenceTransformer(model_name)
+        # CPU on purpose: this encodes one short question. Measured on this box a
+        # single sentence is ~70ms on CPU vs ~190ms once CUDA has initialised, and
+        # CPU avoids reserving GPU memory for a process that exits immediately.
+        # (The dominant cost either way is ~12s of importing torch.)
+        m = SentenceTransformer(model_name, device=args.encode_device)
     except Exception as e:
-        print(f"  [dense] model '{model_name}' unavailable ({e.__class__.__name__}); "
-              f"lexical-only.", file=sys.stderr)
+        log(f"  [dense] model '{model_name}' unavailable ({e.__class__.__name__}); "
+            f"lexical-only.")
         return None
     prefix = "Represent this sentence for searching relevant passages: " \
              if "bge" in (model_name or "").lower() else ""
     qv = m.encode([prefix + query], normalize_embeddings=True)[0].astype("float32")
-    sims = mat @ qv
-    return {i: float(sims[i]) for i in range(len(sims))}
+
+    sims = np.zeros(n_chunks, dtype="float32")
+    if args.dense_rows is not None:
+        rows = args.dense_rows
+        if len(rows):
+            # Random-access only the candidate rows.
+            sims[rows] = np.asarray(mat[rows], dtype="float32") @ qv
+        return sims
+    blk = max(1, args.block)
+    for s in range(0, n_chunks, blk):
+        e = min(s + blk, n_chunks)
+        if mask is not None and not mask[s:e].any():
+            continue
+        sims[s:e] = np.asarray(mat[s:e], dtype="float32") @ qv
+    return sims
+
 
 # ---------------------------------------------------------------- fusion
 def rrf(rank_lists, k=60):
-    """Reciprocal Rank Fusion over {row_idx: rank(0-based)} lists."""
+    """Reciprocal Rank Fusion over {row: rank(0-based)} lists."""
     fused = defaultdict(float)
     for rl in rank_lists:
         for row, rank in rl.items():
             fused[row] += 1.0 / (k + rank + 1)
     return fused
 
-def ranks_from_scores(scores, keep):
-    """scores: dict row->score. Return {row: rank} for the top-`keep` positives."""
-    items = [(r, s) for r, s in scores.items() if s > 0]
+
+def top_rows(scores, keep, mask, np):
+    """{row: rank} for the top-`keep` strictly-positive scores."""
+    if np is not None and hasattr(scores, "dtype"):
+        s = scores
+        if mask is not None:
+            s = np.where(mask, s, np.float32(0))
+        nz = int((s > 0).sum())
+        if not nz:
+            return {}
+        keep = min(keep, nz)
+        idx = np.argpartition(-s, keep - 1)[:keep]
+        idx = idx[np.argsort(-s[idx])]
+        return {int(r): i for i, r in enumerate(idx)}
+    items = [(r, v) for r, v in enumerate(scores)
+             if v > 0 and (mask is None or mask[r])]
     items.sort(key=lambda x: x[1], reverse=True)
-    return {row: i for i, (row, _s) in enumerate(items[:keep])}
+    return {r: i for i, (r, _v) in enumerate(items[:keep])}
+
 
 # ---------------------------------------------------------------- main
 def main():
@@ -168,73 +315,86 @@ def main():
     ap.add_argument("--tag", action="append", default=[])
     ap.add_argument("--kind", default=None, choices=[None, "note", "source"])
     ap.add_argument("--lexical", action="store_true")
+    ap.add_argument("--dense-pool", type=int, default=0, dest="dense_pool")
+    ap.add_argument("--block", type=int, default=200000)
     ap.add_argument("--json", action="store_true", dest="as_json")
     ap.add_argument("--show-chars", type=int, default=600, dest="show_chars")
+    ap.add_argument("--timing", action="store_true")
+    ap.add_argument("--encode-device", default="cpu", dest="encode_device",
+                    help="device for embedding the question (default cpu)")
     args = ap.parse_args()
+    args.dense_rows = None
+
+    def log(msg):
+        print(msg, file=sys.stderr)
+
+    t0 = time.time()
+    def tick(label):
+        if args.timing:
+            log(f"  [t] {label}: {time.time()-t0:.2f}s")
 
     index_dir = find_index(args.target)
     if not index_dir:
         print(f"No index found under {args.target} (run rag_index.py first).", file=sys.stderr)
         sys.exit(2)
 
-    chunks = load_chunks(index_dir)
+    np = _try_numpy()
     meta = load_meta(index_dir)
-    if not chunks:
+    store = ChunkStore(index_dir, np)
+
+    n_chunks = store.n
+    if n_chunks is None:
+        n_chunks = int(meta.get("n_chunks") or 0)
+        if not n_chunks:
+            with open(os.path.join(index_dir, "chunks.jsonl"), encoding="utf-8") as f:
+                n_chunks = sum(1 for _ in f)
+    if not n_chunks:
         print("Index is empty.", file=sys.stderr); sys.exit(2)
 
-    # optional filtering (applied to candidate pool)
-    def keep(c):
-        if args.kind and c.get("kind") != args.kind:
-            return False
-        if args.path and not any(p.lower() in c["path"].lower() for p in args.path):
-            return False
-        if args.tag:
-            ctags = [t.lower() for t in c.get("tags", [])]
-            if not any(t.lower() in ctags for t in args.tag):
-                return False
-        return True
-
-    idx_map = list(range(len(chunks)))          # row -> chunk index (identity)
-    allowed = [i for i in idx_map if keep(chunks[i])]
-    allowed_set = set(allowed)
+    mask = build_mask(index_dir, np, n_chunks, args) if np is not None else None
+    if isinstance(mask, str):           # columns missing on an older index
+        log("  [filter] this index has no filter columns; re-run rag_index.py. "
+            "Filters ignored.")
+        mask = None
+    n_pool = int(mask.sum()) if mask is not None else n_chunks
+    tick("open")
 
     q_tokens = tokenize(args.query)
-
-    # lexical
-    bm = BM25([tokenize(c["text"] + " " + c.get("headings", "") + " " + c.get("title", ""))
-               for c in chunks])
-    lex = bm.scores(q_tokens)
-    lex_scores = {i: lex[i] for i in allowed_set}
-
-    # dense
-    den_scores = None
-    if not args.lexical:
-        den = dense_scores(index_dir, meta, args.query, idx_map)
-        if den is not None:
-            den_scores = {i: den[i] for i in allowed_set}
+    lex, lex_how = lexical_scores(index_dir, np, n_chunks, q_tokens, log)
+    tick(f"lexical ({lex_how})")
 
     pool = max(50, args.k * 6)
-    rank_lists = [ranks_from_scores(lex_scores, pool)]
+    rank_lists = [top_rows(lex, pool, mask, np)]
     mode = "lexical-only"
-    if den_scores is not None:
-        rank_lists.append(ranks_from_scores(den_scores, pool))
-        mode = f"hybrid (BM25 + {meta.get('model')})"
+
+    if not args.lexical:
+        if args.dense_pool and np is not None:
+            cand = top_rows(lex, args.dense_pool, mask, np)
+            args.dense_rows = np.asarray(sorted(cand), dtype="int64")
+        den = dense_scores(index_dir, meta, args.query, np, n_chunks, mask, args, log)
+        if den is not None:
+            rank_lists.append(top_rows(den, pool, mask, np))
+            mode = f"hybrid (BM25 + {meta.get('model')})"
+            if args.dense_pool:
+                mode += f", dense over top-{args.dense_pool} lexical"
+        tick("dense")
 
     fused = rrf(rank_lists)
-    if not fused:
-        # nothing matched lexically or densely: back off to raw dense/lex top
-        base = den_scores or lex_scores
-        fused = {r: s for r, s in base.items()}
     ranked = sorted(fused.items(), key=lambda x: x[1], reverse=True)[:args.k]
+    rows = [r for r, _ in ranked]
+    chunks = store.get(rows)
+    tick("fetch")
 
     results = []
     for row, score in ranked:
-        c = chunks[row]
+        c = chunks.get(row)
+        if not c:
+            continue
         results.append(dict(
             score=round(float(score), 5),
-            path=c["path"], title=c["title"], headings=c.get("headings", ""),
+            path=c["path"], title=c.get("title", ""), headings=c.get("headings", ""),
             section=c.get("section", []), tags=c.get("tags", []),
-            kind=c.get("kind"), text=c["text"],
+            kind=c.get("kind"), text=c.get("text", ""),
         ))
 
     if args.as_json:
@@ -243,7 +403,7 @@ def main():
         return
 
     print(f"# Retrieval: {args.query}")
-    print(f"# mode: {mode} | pool: {len(allowed)}/{len(chunks)} chunks "
+    print(f"# mode: {mode} | pool: {n_pool}/{n_chunks} chunks "
           f"| model: {meta.get('model') or 'none'}\n")
     for i, r in enumerate(results, 1):
         loc = r["path"] + (f"  ›  {r['headings']}" if r["headings"] else "")
@@ -252,6 +412,7 @@ def main():
         body = re.sub(r"\s+", " ", r["text"]).strip()
         print("    " + body[:args.show_chars] + ("…" if len(body) > args.show_chars else ""))
         print()
+
 
 if __name__ == "__main__":
     main()
