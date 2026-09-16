@@ -67,7 +67,11 @@ def _paths(index_dir):
 
 
 # ------------------------------------------------------------------ build
-def build(index_dir, chunks_path, log=print):
+def _flushing_print(*a, **k):
+    k.setdefault("flush", True)   # a redirected nightly log must show stages live
+    print(*a, **k)
+
+def build(index_dir, chunks_path, log=_flushing_print):
     """Build the postings files from an already-written chunks.jsonl.
 
     Two passes over the file. The first counts document frequency per term and

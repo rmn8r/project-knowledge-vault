@@ -84,7 +84,8 @@ First create the wrapper `pkv-skill-update\scripts\reindex_phx069.cmd`:
 set "PKV_SCRATCH=%USERPROFILE%\.pkv\phx069\rag_source"
 cd /d "%~dp0\..\.."
 if not exist "AWS Avondale 069 Vault\.rag" mkdir "AWS Avondale 069 Vault\.rag"
-python "pkv-skill-update\scripts\reindex_all.py" ^
+rem -u so every stage streams into reindex.log as it happens
+python -u "pkv-skill-update\scripts\reindex_all.py" ^
   --vault "AWS Avondale 069 Vault" ^
   --scratch "%PKV_SCRATCH%" ^
   --docs "Drawings & Specs\Specifications" --docs "Subcontracts" --docs "Submittals" --docs "Owner Contract" --docs "Change Orders" ^
