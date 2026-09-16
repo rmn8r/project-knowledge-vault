@@ -207,6 +207,12 @@ def main():
     n_cached = 0
     for root, _, files in os.walk(src):
         for fn in sorted(files):
+            # Office leaves "~$name.xlsx" owner-lock stubs next to open files.
+            # They are a couple of hundred bytes of no content, they fail every
+            # extractor, and they reappear whenever someone has the workbook
+            # open - so they would report as ERR on every nightly run forever.
+            if fn.startswith("~$"):
+                continue
             p = os.path.join(root, fn)
             ext = fn.lower().rsplit(".", 1)[-1] if "." in fn else ""
             rel = os.path.relpath(p, src)
