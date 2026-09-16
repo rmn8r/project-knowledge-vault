@@ -1,6 +1,0 @@
-# Optional dependencies for the semantic (dense) leg of the RAG layer.
-# The lexical (BM25) path needs none of these — Python stdlib only.
-# Install on a machine with network access, then rag_index.py adds embeddings:
-#   pip install -r scripts/requirements-rag.txt
-numpy>=1.24
-sentence-transformers>=2.6

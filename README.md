@@ -20,43 +20,33 @@ document. Built for construction/AEC projects but domain-agnostic.
   `/project-knowledge-vault`.
 - Build/ask/update/verify all work as soon as the skill is saved — no extra setup, no dependencies.
 
-### Optional: enable semantic search (RAG)
-Keyword search (exact `[[wikilinks]]` + tags/IDs) works everywhere out of the box. Adding
-**semantic recall** — so you can ask "who owns the wire to the annunciator" instead of knowing it's
-tagged `26 32 13 §K` — needs a one-time step that **Cowork's sandbox can't do for you**: it has no
-network access to PyPI or the Hugging Face model hub, so it can't install the embedding model itself.
-Do this once from a real command prompt on your own computer (not inside the Claude/Cowork chat):
+### Relevance search over the notes
+`scripts/vault_search.py` ranks the vault's own Markdown with **BM25** (classic
+term-vector IR) — useful when you want "which notes bear on this question?" rather than
+a link you already know.
 
-1. Get this repo onto that machine (`git clone https://github.com/rmn8r/project-knowledge-vault.git`,
-   or download the ZIP from GitHub's **Code → Download ZIP**).
-2. Open **Command Prompt** (Windows) or **Terminal** (Mac/Linux) in that folder and run:
-   ```bat
-   cd project-knowledge-vault
-   pip install -r project-knowledge-vault\scripts\requirements-rag.txt
-   python project-knowledge-vault\scripts\rag_index.py "C:\path\to\Your Project Vault"
-   ```
-   (Mac/Linux: same commands, forward slashes.) This downloads the local embedding model once
-   (cached for reuse) and writes a `.rag/` index folder inside your vault. Nothing is uploaded —
-   the model runs, and stays, entirely on your machine.
-3. Nothing else to run or keep alive. If your vault lives in a synced folder (OneDrive, Google
-   Drive, etc.), the `.rag/` folder syncs with it like any other vault file.
-4. Back in Cowork (or Claude Code, or any other environment), just ask your question — retrieval
-   picks up the index automatically. If that environment also has the same Python packages
-   installed, you get full hybrid (keyword + semantic) results; if not, it falls back to
-   keyword-only automatically — same index, nothing crashes.
-5. After adding a batch of new project documents, re-run step 2 to refresh the index — it's
-   incremental, so only new/changed notes get re-embedded.
+```bat
+python project-knowledge-vault\scripts\vault_search.py "C:\path\to\Your Project Vault" "who owns the annunciator wiring"
+```
 
-See `references/rag-retrieval.md` for the full design (why hybrid, what stays local, index layout).
+**No model, no GPU, no dependencies, no index to maintain.** It is Python stdlib only, so
+it runs anywhere the skill does — including a locked-down agent sandbox — and it is always
+current because it reads the notes live at query time. Optionally
+`vault_search.py build "<Vault>"` caches a ~2 MB `.vaultidx.json`; queries fall back to
+live reading whenever that cache is older than a note.
+
+Relevance comes from the notes themselves: frontmatter `aliases:` and `tags:` are boosted,
+so recording that MEDS means USB, or that a camboard is a camlock, makes a plain keyword
+query behave semantically. Enrich the notes and search gets smarter — the meaning lives in
+the vault, not in a model.
 
 ## Repository layout
 ```
 project-knowledge-vault/          # the skill (installable unit)
   SKILL.md                        # workflow + invocation modes
-  references/                     # vault-structure, note-templates, extraction-playbook, update-workflow,
-                                   # rag-retrieval (optional semantic search)
-  scripts/                        # extract_text.py, verify_links.py, rag_index.py, rag_query.py,
-                                   # requirements-rag.txt (optional semantic-search deps)
+  references/                     # vault-structure, note-templates, extraction-playbook, update-workflow
+  scripts/                        # extract_text.py, verify_links.py, audit_vault.py, link_hubs.py,
+                                   # vault_search.py (model-free BM25 search)
   assets/                         # graph.json (Obsidian graph color groups)
 project-knowledge-vault.skill     # packaged, installable archive
 ```
@@ -64,9 +54,10 @@ project-knowledge-vault.skill     # packaged, installable archive
 ## Scripts
 - `scripts/extract_text.py <src_dir> <out_dir>` — batch text extraction + inventory (PDF/XLSX/PPTX/CSV/MSG).
 - `scripts/verify_links.py <vault_dir>` — checks all Obsidian wikilinks resolve.
-- `scripts/rag_index.py <vault_dir>` — builds/refreshes the optional local hybrid (keyword + semantic)
-  retrieval index; see **Optional: enable semantic search** above.
-- `scripts/rag_query.py <vault_dir> "<question>"` — queries that index.
+- `scripts/audit_vault.py <vault_dir>` — vault health/coverage audit.
+- `scripts/link_hubs.py <vault_dir>` — regenerates hub-note indexes.
+- `scripts/vault_search.py <vault_dir> "<question>"` — model-free BM25 relevance search over
+  the notes; see **Relevance search over the notes** above.
 
 ## License
 MIT — see `LICENSE`.
