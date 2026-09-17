@@ -66,7 +66,7 @@ If the user wants a recurring refresh, offer a **scheduled task** running Update
   - Owner decision / scope boundary → Scope Clarifications with a recommended position.
 - **Enrich as you log (the "meaning layer").** When a finding introduces or clarifies an entity, add its **synonyms / acronyms / alt-names** to the target note's frontmatter `aliases:` and to `Glossary & Acronyms.md`. This is the cheapest, most durable form of "vectorizing" the vault: meaning encoded in the notes makes plain search and `vault_search.py` resolve *MEDS→USB*, *camboard→camlock*, etc., with no model.
 - Append a dated entry (**newest first**) to `Vault Change Log.md` summarizing notes touched and IDs added/resolved.
-- Auto-apply by default (don't wait for per-edit approval) unless the user prefers propose-then-confirm.
+- **Auto-apply — never ask permission to log.** Logging a material finding is automatic and part of the same turn as the answer; do **not** end a response with "want me to log this?" / "should I add this to the vault?" Just do it and report it in the 2–4 line wrap. Reserve questions for decisions that are genuinely the user's — a scope/design call, or a **destructive/irreversible** action (deleting, publishing, pushing) — never for whether to record a finding. Switch to propose-then-confirm only if the user explicitly asks.
 
 ### Catch-up recipe (when logging has lapsed)
 1. Enumerate the material findings/decisions/gaps surfaced since the last change-log entry.
@@ -74,6 +74,22 @@ If the user wants a recurring refresh, offer a **scheduled task** running Update
 3. Parallelize with subagents for the note enrichments — but **one owner (you) writes the registers and the change log** so IDs never collide. Give each agent the exact note paths, the pre-assigned IDs to reference, and "do not touch registers/change log."
 4. Add the register rows + one consolidated, dated change-log entry.
 5. Run the hub-indexer + audit.
+
+---
+## Comprehensive determination (sweep every relevant source before answering)
+Scope, ownership, cost, and code determinations are **multi-source by nature** — never decide one from a single document. Before concluding, sweep **every** class that could bear on it, read **both sides** of each interface, reconcile, and **cite each source**:
+- **Owner contract** (GCA / Work Order / PO) — base scope, what's reimbursable, what's owner-furnished.
+- **Subcontracts** — the Part 3 **inclusions AND the "by others" exclusions** of **every** plausibly-responsible trade (adjacent disciplines too), not just the obvious one. A single "by others" line in one sub's scope is the tell that another trade owns it.
+- **Drawings & specs** — the governing text + general/keyed notes (the operative designator — e.g. OFCI tags, "by others" notes, testing sections).
+- **Submittals** — approved product data / vendor scope where it settles furnish-vs-install or factory-vs-field (only if the user hasn't said to skip them).
+- **Change docs** — RFIs, CORs/PCLs, scope-delineation clarifications that may already adjudicate the point.
+- **Codes/standards** — NEC / NETA / NFPA / AHJ where a code drives the requirement.
+
+Use `scripts/vault_search.py` to find what the vault already captured, then open the **source documents** for authoritative text. Name the sources checked in the answer.
+
+**COR review is the canonical example:** you cannot adjudicate a COR from its own narrative. Reconcile the **owner contract** (reimbursable / already in base GMP?), the **subcontract** (whose scope — and does a "by others" exclusion move it?), and the **drawings & specs** (shown/required by the contract documents?) — the COR is valid only for the delta none of those already cover. Apply the same sweep to scope-boundary ("who owns it"), NETA/testing, and OFCI/CFCI calls.
+
+Miss this and you get single-source tunnel vision — assigning a scope to the first sub you read, or approving a COR the base contract already covers. When a determination is contested or money/schedule rides on it, quote the exact governing language, not a paraphrase.
 
 ---
 ## Connectivity standard (aim for this; audit against it)
@@ -259,13 +275,14 @@ After running either script, re-run the audit and confirm 0 unresolved / 0 orpha
 - `scripts/vault_search.py` — model-free BM25 relevance search over the vault notes (alias/tag-boosted, cited, runs anywhere; no model/deps). `python vault_search.py "<vault>" "<question>" [-k N] [--path P] [--tag T] [--json]`; optional `build "<vault>"` writes a tiny `.vaultidx.json` cache.
 
 ## Principles
+- **Determinations are multi-source.** Scope / COR / ownership / code calls sweep the owner contract + subcontracts (inclusions *and* "by others" exclusions, every plausibly-responsible trade) + drawings/specs + submittals + change docs + code — reconciled and cited. Never decide from one document.
 - **Organize outputs, don't dump them.** Every generated file lands in the topic subfolder that fits (create one if needed); the project root stays clean; the deliverables index + folder map stay current.
 - **The vault knows its outputs' contents.** Index every generated report/workbook/dashboard with a synopsis of what's inside (structure + headline figures as-of a date), not just its path — so questions get answered from the vault without reopening the file.
 - **Source-traceable:** every note cites where its facts came from.
 - **Small, linked notes beat big documents:** one idea per note, connected by `[[wikilinks]]`.
 - **Connectivity is a feature:** hubs index children; no orphans; run the hub-indexer + audit after edits.
 - **Meaning lives in the notes, not a model:** encode synonyms/acronyms as `aliases`/`tags` + a glossary; search is a model-free BM25 over the notes (`vault_search.py`) — nothing to install, sync, or let go stale.
-- **Log as you go:** capture material findings the same turn — don't let them pile up.
+- **Log as you go, don't ask to log:** capture material findings the same turn, automatically; only ask the user about genuine decisions or destructive actions.
 - **Track problems, don't bury them:** conflicts and gaps get registers.
 - **Persist for the next person:** a project-memory `CLAUDE.md` + a glossary make the skill transferable.
 - **A read error on cloud storage is dehydration, not corruption:** hydrate, don't conclude "corrupt."
