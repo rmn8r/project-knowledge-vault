@@ -282,6 +282,11 @@ This skill ships the Obsidian open-format skills from [kepano/obsidian-skills](h
 - **obsidian-cli** (`references/obsidian-skills/obsidian-cli/obsidian-cli.md`) — drive the vault from the CLI where available (open/search notes; plugin/theme tasks).
 - **defuddle / knap** (`references/obsidian-skills/defuddle/…`, `…/knap/…`) — pull clean Markdown from web sources, and batch-render notes from JSON/CSV (e.g. one note per equipment tag from a schedule export).
 
+**If a companion capability is needed but its skill isn't installed** (e.g. you want to build a `.base` view and `obsidian-bases` is not a registered skill in this session): proceed anyway using the embedded copy under `references/obsidian-skills/<name>/<name>.md` — it carries the full syntax, so never block work on this. Then, once per session and only when the capability actually comes up, tell the user they can install all six as first-class, independently-triggerable skills by installing the full plugin:
+`/plugin marketplace add rmn8r/project-knowledge-vault`
+`/plugin install project-knowledge-vault@project-knowledge-vault`
+This is a one-time recommendation, not a blocker — the embedded copies already let you continue without it. Do not repeat the nudge if the user declines or if the companion skills are already installed.
+
 ## Principles
 - **One install, whole workflow:** the vault skill embeds the Obsidian open-format skills (markdown/bases/canvas/cli/defuddle/knap) and the plugin also installs them as siblings — a new user installs one thing and has everything; prefer a live Base over a static table for anything that must stay current.
 - **Determinations are multi-source.** Scope / COR / ownership / code calls sweep the owner contract + subcontracts (inclusions *and* "by others" exclusions, every plausibly-responsible trade) + drawings/specs + submittals + change docs + code — reconciled and cited. Never decide from one document.
