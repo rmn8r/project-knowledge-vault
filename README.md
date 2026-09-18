@@ -14,8 +14,20 @@ document. Built for construction/AEC projects but domain-agnostic.
 - **Verify:** every `[[wikilink]]` is checked to resolve.
 
 ## Install
+**As a plugin (recommended — installs all seven skills):**
+```
+/plugin marketplace add rmn8r/project-knowledge-vault
+/plugin install project-knowledge-vault@project-knowledge-vault
+```
+That brings `project-knowledge-vault` plus the six bundled Obsidian open-format skills
+(`obsidian-markdown`, `obsidian-bases`, `json-canvas`, `obsidian-cli`, `defuddle`, `knap`) as
+first-class siblings, reference files included.
+
+**As a single skill:**
 - **Claude (Cowork / claude.ai):** download `project-knowledge-vault.skill` and use **Save skill**
-  (Settings → Capabilities), or drop the `project-knowledge-vault/` folder into your skills directory.
+  (Settings → Capabilities), or drop the `skills/project-knowledge-vault/` folder into your skills
+  directory. The six companions are embedded inside it under `references/obsidian-skills/`, so the
+  standalone skill carries the full Obsidian know-how too.
 - Triggers automatically when you ask to build/update a project knowledge base, or explicitly via
   `/project-knowledge-vault`.
 - Build/ask/update/verify all work as soon as the skill is saved — no extra setup, no dependencies.
@@ -26,7 +38,7 @@ term-vector IR) — useful when you want "which notes bear on this question?" ra
 a link you already know.
 
 ```bat
-python project-knowledge-vault\scripts\vault_search.py "C:\path\to\Your Project Vault" "who owns the annunciator wiring"
+python skills\project-knowledge-vault\scripts\vault_search.py "C:\path\to\Your Project Vault" "who owns the annunciator wiring"
 ```
 
 **No model, no GPU, no dependencies, no index to maintain.** It is Python stdlib only, so
@@ -42,13 +54,20 @@ the vault, not in a model.
 
 ## Repository layout
 ```
-project-knowledge-vault/          # the skill (installable unit)
-  SKILL.md                        # workflow + invocation modes
-  references/                     # vault-structure, note-templates, extraction-playbook, update-workflow
-  scripts/                        # extract_text.py, verify_links.py, audit_vault.py, link_hubs.py,
-                                   # vault_search.py (model-free BM25 search)
-  assets/                         # graph.json (Obsidian graph color groups)
-project-knowledge-vault.skill     # packaged, installable archive
+.claude-plugin/                     # marketplace.json + plugin.json (ships all 7 skills)
+skills/
+  project-knowledge-vault/          # the vault skill (installable on its own)
+    SKILL.md                        # workflow + invocation modes
+    references/                     # vault-structure, note-templates, extraction-playbook, update-workflow
+      obsidian-skills/              # the six kepano skills, embedded so this skill is self-contained
+    scripts/                        # extract_text.py, verify_links.py, audit_vault.py, link_hubs.py,
+                                    # vault_search.py (model-free BM25 search)
+    assets/                         # graph.json (Obsidian graph color groups)
+  obsidian-markdown/  obsidian-bases/  json-canvas/     # vendored from kepano/obsidian-skills (MIT),
+  obsidian-cli/       defuddle/        knap/            # installed as first-class sibling skills
+project-knowledge-vault.skill       # packaged, installable archive (vault skill + embedded companions)
+THIRD_PARTY/kepano-obsidian-skills/LICENSE
+ATTRIBUTION.md
 ```
 
 ## Scripts
@@ -59,5 +78,14 @@ project-knowledge-vault.skill     # packaged, installable archive
 - `scripts/vault_search.py <vault_dir> "<question>"` — model-free BM25 relevance search over
   the notes; see **Relevance search over the notes** above.
 
+## Credits / third-party skills
+`obsidian-markdown`, `obsidian-bases`, `json-canvas`, `obsidian-cli`, `defuddle`, and `knap` are
+vendored from [kepano/obsidian-skills](https://github.com/kepano/obsidian-skills) (MIT, © 2026
+Steph Ango) at a pinned commit. They ship both as sibling skills and embedded inside
+`project-knowledge-vault`. Full details — pinned SHA, both placements, and the upstream license —
+in [`ATTRIBUTION.md`](ATTRIBUTION.md) and
+[`THIRD_PARTY/kepano-obsidian-skills/LICENSE`](THIRD_PARTY/kepano-obsidian-skills/LICENSE).
+
 ## License
-MIT — see `LICENSE`.
+MIT — see `LICENSE`. Vendored third-party skills remain under their own MIT license; see
+`ATTRIBUTION.md`.

@@ -274,7 +274,16 @@ After running either script, re-run the audit and confirm 0 unresolved / 0 orpha
 - `scripts/verify_links.py` — link check (note: guard reads / prefer the embedded resilient **audit** above on cloud-synced vaults).
 - `scripts/vault_search.py` — model-free BM25 relevance search over the vault notes (alias/tag-boosted, cited, runs anywhere; no model/deps). `python vault_search.py "<vault>" "<question>" [-k N] [--path P] [--tag T] [--json]`; optional `build "<vault>"` writes a tiny `.vaultidx.json` cache.
 
+## Companion skills (bundled)
+This skill ships the Obsidian open-format skills from [kepano/obsidian-skills](https://github.com/kepano/obsidian-skills) (MIT), embedded under `references/obsidian-skills/` so PKV is self-contained, and also installed as first-class sibling skills when the full plugin is installed. Use them:
+- **obsidian-markdown** (`references/obsidian-skills/obsidian-markdown/obsidian-markdown.md`) — authoritative Obsidian Flavored Markdown syntax (wikilinks, embeds `![[ ]]`, callouts, properties/frontmatter, block refs). Consult when writing or repairing note bodies so links and callouts render correctly.
+- **obsidian-bases** (`references/obsidian-skills/obsidian-bases/obsidian-bases.md`) — build `.base` live database views. Prefer a Base over a hand-maintained Markdown table for any register/dashboard that must stay current (Conflicts `X-#` / Gaps `G-#` registers, the generated-deliverables index, equipment-by-discipline rollups): the Base queries note frontmatter live, so it never goes stale. Keep a static fallback table only where Bases aren't available.
+- **json-canvas** (`references/obsidian-skills/json-canvas/json-canvas.md`) — author `.canvas` files for visual deliverables (power/cooling one-lines, loop diagrams, coordination maps) meant to open in Obsidian's canvas.
+- **obsidian-cli** (`references/obsidian-skills/obsidian-cli/obsidian-cli.md`) — drive the vault from the CLI where available (open/search notes; plugin/theme tasks).
+- **defuddle / knap** (`references/obsidian-skills/defuddle/…`, `…/knap/…`) — pull clean Markdown from web sources, and batch-render notes from JSON/CSV (e.g. one note per equipment tag from a schedule export).
+
 ## Principles
+- **One install, whole workflow:** the vault skill embeds the Obsidian open-format skills (markdown/bases/canvas/cli/defuddle/knap) and the plugin also installs them as siblings — a new user installs one thing and has everything; prefer a live Base over a static table for anything that must stay current.
 - **Determinations are multi-source.** Scope / COR / ownership / code calls sweep the owner contract + subcontracts (inclusions *and* "by others" exclusions, every plausibly-responsible trade) + drawings/specs + submittals + change docs + code — reconciled and cited. Never decide from one document.
 - **Organize outputs, don't dump them.** Every generated file lands in the topic subfolder that fits (create one if needed); the project root stays clean; the deliverables index + folder map stay current.
 - **The vault knows its outputs' contents.** Index every generated report/workbook/dashboard with a synopsis of what's inside (structure + headline figures as-of a date), not just its path — so questions get answered from the vault without reopening the file.

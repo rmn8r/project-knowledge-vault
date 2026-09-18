@@ -1,0 +1,15 @@
+{
+  "name": "project-knowledge-vault",
+  "owner": {
+    "name": "Raman",
+    "url": "https://github.com/rmn8r"
+  },
+  "plugins": [
+    {
+      "name": "project-knowledge-vault",
+      "source": "./",
+      "description": "Project knowledge vault + the Obsidian open-format skills (7 skills)",
+      "version": "1.0.0"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "project-knowledge-vault",
+  "version": "1.0.0",
+  "description": "Turn a folder of project documents into a linked Obsidian knowledge-base vault and keep it alive, bundled with the Obsidian open-format skills (Markdown, Bases, Canvas, CLI, Defuddle, Knap).",
+  "author": {
+    "name": "Raman",
+    "url": "https://github.com/rmn8r"
+  },
+  "repository": "https://github.com/rmn8r/project-knowledge-vault",
+  "license": "MIT",
+  "keywords": [
+    "obsidian",
+    "knowledge-base",
+    "vault",
+    "construction",
+    "aec",
+    "markdown",
+    "bases",
+    "canvas",
+    "pkm",
+    "notes"
+  ]
+}
