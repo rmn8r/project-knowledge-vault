@@ -61,7 +61,7 @@ skills/
     references/                     # vault-structure, note-templates, extraction-playbook, update-workflow
       obsidian-skills/              # the six kepano skills, embedded so this skill is self-contained
     scripts/                        # extract_text.py, verify_links.py, audit_vault.py, link_hubs.py,
-                                    # vault_search.py (model-free BM25 search)
+                                    # vault_search.py (model-free BM25 search), intake_upload.py
     assets/                         # graph.json (Obsidian graph color groups)
   obsidian-markdown/  obsidian-bases/  json-canvas/     # vendored from kepano/obsidian-skills (MIT),
   obsidian-cli/       defuddle/        knap/            # installed as first-class sibling skills
@@ -77,6 +77,8 @@ ATTRIBUTION.md
 - `scripts/link_hubs.py <vault_dir>` — regenerates hub-note indexes.
 - `scripts/vault_search.py <vault_dir> "<question>"` — model-free BM25 relevance search over
   the notes; see **Relevance search over the notes** above.
+- `scripts/intake_upload.py <upload_file> <project_root> <target_subfolder> [--name N]` — saves a
+  file dropped into the chat: sha1 de-dup against the target folder, then a no-overwrite copy.
 
 ## Credits / third-party skills
 `obsidian-markdown`, `obsidian-bases`, `json-canvas`, `obsidian-cli`, `defuddle`, and `knap` are

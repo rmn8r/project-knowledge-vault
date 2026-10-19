@@ -86,6 +86,21 @@ parameters**, **Interdependencies**, **Issues**.
 - **Scope Clarifications (for Owner)** — table: `# (SC-#) | Topic | Discipline | Clarification needed |
   Recommended position | Impact | Ref`, plus a short "design-team RFIs (separate track)" list.
 
+## Uploaded Files Index (in `06 - Documents`)
+Created on the first chat upload; linked from `Source Documents` and `00 - Home`. One row per upload.
+```markdown
+---
+type: index
+tags: [index, uploads, intake, source-documents]
+aliases: ["Uploaded Files", "Chat Uploads", "Dropped Files", "Intake Log"]
+---
+# Uploaded Files Index
+Every file dropped into a chat is saved into the matching project folder (never the vault/root) and logged here with a synopsis. Rule: [[Source Documents]] · project `CLAUDE.md` § Uploaded files.
+
+| Uploaded | File (saved as) | Saved to | What it is (synopsis) | Linked notes |
+|---|---|---|---|---|
+```
+
 ## Home / MOC
 Dashboard linking: Start-here project notes, all discipline hubs, all system hubs, key equipment
 anchors, document indexes, and the registers. Add a "Living vault" line pointing at the change log.

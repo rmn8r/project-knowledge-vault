@@ -1,6 +1,6 @@
 ---
 name: "project-knowledge-vault"
-description: "Turn a folder of project documents (drawings, specs, schedules, reports, emails, decks) into a linked Obsidian knowledge-base vault, then KEEP it alive as the project chat continues. Use to \"set up a new project / build a vault / review & organize these files / index a construction or engineering project,\" to answer questions from a document set, to integrate newly added files, or to log findings/decisions mid-conversation. Also keeps generated deliverables organized in topic subfolders and indexed with a synopsis of their contents, and offers a lightweight model-free in-vault relevance search (BM25 over the notes, no model/GPU/deps). Construction/AEC is the primary use case but the workflow is domain-agnostic."
+description: "Turn a folder of project documents (drawings, specs, schedules, reports, emails, decks) into a linked Obsidian knowledge-base vault, then KEEP it alive as the project chat continues. Use to \"set up a new project / build a vault / review & organize these files / index a construction or engineering project,\" to answer questions from a document set, to integrate newly added files (including any file the user drags or attaches into the chat, which is auto-saved to the right project folder and indexed), or to log findings/decisions mid-conversation. Also keeps generated deliverables organized in topic subfolders and indexed with a synopsis of their contents, and offers a lightweight model-free in-vault relevance search (BM25 over the notes, no model/GPU/deps). Construction/AEC is the primary use case but the workflow is domain-agnostic."
 ---
 
 # Project Knowledge Vault
@@ -9,16 +9,17 @@ Build — and then **maintain** — an [Obsidian](https://obsidian.md) vault fro
 
 Output is a plain folder of `.md` files with `[[wikilinks]]` — opens in Obsidian, works in any editor, no lock-in.
 
-> **The build is a few hours; the maintenance is the whole project.** Most of a vault's life is spent in Ask/Update/Sync mode, not the first build. The sections on **Living vault**, **Connectivity**, and **Project memory** are what make this level of capability transfer to a new person — treat them as first-class, not afterthoughts.
+> **The build is a few hours; the maintenance is the whole project.** Most of a vault's life is spent in Ask/Update/Sync mode, not the first build. The sections on **Living vault**, **Chat-upload intake**, **Connectivity**, and **Project memory** are what make this level of capability transfer to a new person — treat them as first-class, not afterthoughts.
 
 ## What "good" looks like
-- One hub per **discipline** and per **system**; one note per **equipment/asset**; register notes for **conflicts**, **information gaps**, **scope clarifications**; document-index notes (drawing index, spec index, **generated-deliverables index**); a **Home** map-of-content; a **glossary**; and a **change log**.
+- One hub per **discipline** and per **system**; one note per **equipment/asset**; register notes for **conflicts**, **information gaps**, **scope clarifications**; document-index notes (drawing index, spec index, **generated-deliverables index**, **uploaded-files index**); a **Home** map-of-content; a **glossary**; and a **change log**.
 - Every note has YAML frontmatter and cites its **source** (sheet / spec section / report page).
 - **Everything is cross-linked and all links resolve.** Every hub indexes its children; every note is reachable ≥2 ways; there are **no orphans**.
 - Notes **carry their own meaning** — frontmatter `aliases:`/`tags:` hold the synonyms, acronyms, and alt-names for the thing (so a search for "MEDS" finds the "USB" note). This is what makes plain search behave semantically without any model.
 - Anything ambiguous or contradictory is captured in a register, not silently dropped.
 - A **project memory** (`CLAUDE.md` at the project root) and a **glossary** let the next session — or the next person — extend the vault instead of rebuilding it.
 - Generated deliverables are **organized into topic subfolders** (not dumped in the project root) and indexed **with a synopsis of their contents** — the vault knows what's inside each report/workbook/dashboard, not just where it lives.
+- Files the user **drops into the chat** are saved into the right project folder and indexed with a synopsis — nothing the user shares is lost when the session's temporary uploads folder is cleared.
 
 ---
 ## Invocation & modes
@@ -29,6 +30,7 @@ Invoked automatically when a request matches, or explicitly via `/project-knowle
 | **Build** (first time) | "set up a project," "build a vault from this folder," "review & organize these files" | Phases 0→6, then write the **project memory**. |
 | **Ask** | any project question once a vault exists | Answer from the vault/sources (use `vault_search.py` for a fast relevance sweep); **then apply the Living-vault capture rules** (log material findings). |
 | **Update — new files** | "I added docs, update the vault" | Extract just the new files, create/enrich notes, update registers + indexes + Home, run **hub-indexer**, re-audit. |
+| **Intake — file dropped in chat** | the user drags/attaches **any** file into the conversation (with or without a request about it) | Automatically run the **Chat-upload intake** recipe: save it to the matching project folder, index it with a synopsis, back-link it, log findings. Never ask first. |
 | **Sync — findings** | corrections/decisions/gaps mid-chat | Apply capture rules (finding→note; gap→register; conflict→register) + a dated change-log line. |
 | **Catch-up** | logging has lapsed (several answers, no edits) | Run the **Catch-up recipe** below. |
 | **Audit / health check** | "check the vault," "is everything linked" | Run the **audit script**; fix orphans, unresolved links, hub-index gaps. |
@@ -53,7 +55,7 @@ If the user wants a recurring refresh, offer a **scheduled task** running Update
 1. Run the **hub-indexer** (below) so every hub links its children.
 2. Run the **audit** (below); drive unresolved links → 0 and orphans → 0.
 3. Optionally seed graph colors from `assets/graph.json`.
-4. **Write the project memory** (`CLAUDE.md` — below), including the **deliverable folder map**.
+4. **Write the project memory** (`CLAUDE.md` — below), including the **deliverable folder map** and the **uploaded-files rule**.
 5. Tell the user how to open it (install Obsidian → *Open folder as vault* → start at `00 - Home`).
 
 ---
@@ -115,6 +117,24 @@ python scripts/vault_search.py build "<Vault>"                                 #
 - Optional `.vaultidx.json` cache (a couple of MB) is written only if you run `build`; it auto-invalidates when a note changes. Add `.vaultidx.json` to ignore lists — it's a rebuildable cache.
 
 ---
+## Chat-upload intake (files dropped into the conversation)
+A file the user drags into the chat is project knowledge the moment it arrives. Chat uploads land in a **temporary session folder** that is wiped later; unless the file is saved into the project and indexed, the next session (or the next person) will never know it existed. Treat every upload as an **Update: new file**, automatically and without asking:
+
+1. **Detect.** Any new file in the session's uploads folder or attached to the message. Skip pure illustration (a UI screenshot, a clip of a sheet already in the set) unless it carries unique project information, and say so in the wrap.
+2. **De-duplicate.** Hash the upload (md5/sha1) and compare against same-type files in the likely target folders. If an identical file is already saved, don't copy it; index the existing path.
+3. **Route** it to the matching **project source folder**, never the vault and never the project root, using the folder map in the project `CLAUDE.md`. Typical AEC routing: subcontractor CORs/PCOs to `Subcontracts/<trade>/02 - COs/`; owner PCL packets to `Change Orders/PCL-###…/`; owner letters and notices to `Correspondence/…`; schedules to `Schedule/` (XERs to `Baseline XERs/`); submittals to `Submittals/<spec or vendor>/`; commissioning/QA files to `Cx/<subfolder>/`; drawings and specs to `Drawings & Specs/…`; org charts and rosters to `Team/`. If nothing fits, create a sensibly named subfolder and add it to the folder map.
+4. **Name** it. Keep the original filename when it is descriptive. If it is cryptic (`DP PCO 79.pdf`, `notice[1].pdf`, `Book1.xlsx`), save it under a descriptive name in the folder's existing naming style and record the original name. Never overwrite an existing file; add a suffix such as `(uploaded copy)` or a date.
+5. **Read** enough of it (extraction playbook: pdftotext / xlsx / docx / OCR) to write a synopsis.
+6. **Index** it in `06 - Documents/Uploaded Files Index.md`, creating that note on first use and linking it from `Source Documents` and `00 - Home`. Each row records: upload date · saved name (plus original name if renamed) · saved path · **synopsis** (what it is, parties, headline figures and dates, status) · links to related notes. A substantial file (multi-tab workbook, long report) also gets a `<File> (contents).md` companion note, the same as generated deliverables.
+7. **Back-link** it. Add a `Source file:` line (path plus `[[Uploaded Files Index]]`) to each related note (email thread, equipment note, register row), so the file can be reached from its topic.
+8. **Log findings** per the Living-vault rules: facts go to notes, gaps and conflicts go to registers, synonyms go to aliases and the glossary. Add a dated `Vault Change Log` entry ("intake: N files").
+9. **Report** in the 2 to 4 line wrap: what was saved where, the index row, and what was logged. If the message also asked a question, answer it first and do the intake after.
+
+- **Sandbox notes.** The uploads folder is usually read-only. Copy with the shell (`cp -n`) into the mounted project folder. If the write fails (permissions or a locked cloud file), retry through the file tool, otherwise tell the user the exact path to save it to. Cloud-only targets follow the dehydration rule below. `scripts/intake_upload.py` does the hash-check and no-overwrite copy in one step (prints JSON with `saved` / `duplicate_of`); the agent still picks the folder and writes the index row.
+- **Persist the rule.** Add an "Uploaded files" section to the project `CLAUDE.md` so the behavior survives even when this skill is not loaded.
+- **Back-fill.** When this rule is first switched on mid-project, offer to back-fill earlier uploads from the current session.
+
+---
 ## File organization (keep the project tidy)
 Generated outputs must land in the **topic subfolder that fits**, never the project root (the root should hold only `CLAUDE.md` and the vault folder). This is a first-class rule, not a nicety — a root full of loose files is the same failure mode as a vault full of orphans.
 - **Before saving any deliverable, consult the folder map** in the project `CLAUDE.md` (and the folder-map header of `06 - Documents/Generated Deliverables & Reports.md`). Save into the matching subfolder.
@@ -139,6 +159,7 @@ Working context for future sessions. This folder is the shared project root; pat
 
 ## Source documents (same shared folder)
 - Drawings/specs: `…/`  · Change orders/financials: `…/` · Schedule/baselines: `…/` · Submittals/subcontracts: `…/`
+- Chat uploads: any file dropped into the chat is saved into the matching folder above (never the vault/root) and indexed with a synopsis in `06 - Documents/Uploaded Files Index.md`.
 - Generated deliverables are filed into **topic subfolders** (below), never the project root; `06 - Documents/Generated Deliverables & Reports.md` indexes every output — path **plus a synopsis of its contents** (structure + headline figures as-of a date), with a companion `<Deliverable> (contents).md` note for substantial workbooks/dashboards.
 
 ## Deliverable folders (keep the root clean)
@@ -273,6 +294,7 @@ After running either script, re-run the audit and confirm 0 unresolved / 0 orpha
 - `scripts/extract_text.py` — batch extraction + inventory. `python extract_text.py <src> <out>`.
 - `scripts/verify_links.py` — link check (note: guard reads / prefer the embedded resilient **audit** above on cloud-synced vaults).
 - `scripts/vault_search.py` — model-free BM25 relevance search over the vault notes (alias/tag-boosted, cited, runs anywhere; no model/deps). `python vault_search.py "<vault>" "<question>" [-k N] [--path P] [--tag T] [--json]`; optional `build "<vault>"` writes a tiny `.vaultidx.json` cache.
+- `scripts/intake_upload.py` — chat-upload intake helper: sha1 de-dup against the target folder, then a no-overwrite copy. `python intake_upload.py <upload_file> <project_root> <target_subfolder> [--name "Descriptive Name.ext"]` → JSON `{"saved", "duplicate_of", "sha1"}`. Stdlib only.
 
 ## Companion skills (bundled)
 This skill ships the Obsidian open-format skills from [kepano/obsidian-skills](https://github.com/kepano/obsidian-skills) (MIT), embedded under `references/obsidian-skills/` so PKV is self-contained, and also installed as first-class sibling skills when the full plugin is installed. Use them:
@@ -288,6 +310,7 @@ This skill ships the Obsidian open-format skills from [kepano/obsidian-skills](h
 This is a one-time recommendation, not a blocker — the embedded copies already let you continue without it. Do not repeat the nudge if the user declines or if the companion skills are already installed.
 
 ## Principles
+- **Uploads are knowledge, not attachments.** Every file dropped into the chat is saved to its project folder and indexed with a synopsis, because the uploads folder is temporary.
 - **One install, whole workflow:** the vault skill embeds the Obsidian open-format skills (markdown/bases/canvas/cli/defuddle/knap) and the plugin also installs them as siblings — a new user installs one thing and has everything; prefer a live Base over a static table for anything that must stay current.
 - **Determinations are multi-source.** Scope / COR / ownership / code calls sweep the owner contract + subcontracts (inclusions *and* "by others" exclusions, every plausibly-responsible trade) + drawings/specs + submittals + change docs + code — reconciled and cited. Never decide from one document.
 - **Organize outputs, don't dump them.** Every generated file lands in the topic subfolder that fits (create one if needed); the project root stays clean; the deliverables index + folder map stay current.
