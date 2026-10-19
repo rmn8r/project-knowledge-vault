@@ -39,6 +39,12 @@ When the user drops new documents (e.g., a `Geotech/`, `Schedule/`, `Site Logist
 5. **Update** `Source Documents` (add the new files with dates) and `00 - Home` (link new notes).
 6. **Re-verify** links.
 
+### Files dropped into the chat
+A file the user drags or attaches into the conversation is a new file too, and it lives in a temporary
+uploads folder. Run the **Chat-upload intake** recipe in `SKILL.md` automatically: de-dup by hash, save it to
+the matching project folder (never the vault/root), index it in `06 - Documents/Uploaded Files Index.md`
+with a synopsis, add `Source file:` back-links, then steps 3–6 above. `scripts/intake_upload.py` does the copy.
+
 ## Persistence across sessions
 Save a short **project memory** capturing: vault location, the structure/hub names, where the source
 docs live, and this update workflow — so a future chat extends the vault instead of rebuilding it. If a
