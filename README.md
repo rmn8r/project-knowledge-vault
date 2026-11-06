@@ -12,6 +12,9 @@ document. Built for construction/AEC projects but domain-agnostic.
 - **Ask:** answer project questions from the vault, with sources cited.
 - **Update:** when new files/folders are added, integrate just the new material and keep the vault in sync.
 - **Verify:** every `[[wikilink]]` is checked to resolve.
+- **Schedules:** analyse Primavera P6 `.xer` files: driving path, update diff, milestone gap check, DCMA, earned value.
+
+What's new: [RELEASE_NOTES.md](RELEASE_NOTES.md). Full history: [CHANGELOG.md](CHANGELOG.md). Downloads: [Releases](https://github.com/rmn8r/project-knowledge-vault/releases).
 
 ## Install
 **As a plugin (recommended — installs all seven skills):**
@@ -24,7 +27,7 @@ That brings `project-knowledge-vault` plus the six bundled Obsidian open-format 
 first-class siblings, reference files included.
 
 **As a single skill:**
-- **Claude (Cowork / claude.ai):** download `project-knowledge-vault.skill` and use **Save skill**
+- **Claude (Cowork / claude.ai):** download `project-knowledge-vault.skill` (from the latest [release](https://github.com/rmn8r/project-knowledge-vault/releases/latest)) and use **Save skill**
   (Settings → Capabilities), or drop the `skills/project-knowledge-vault/` folder into your skills
   directory. The six companions are embedded inside it under `references/obsidian-skills/`, so the
   standalone skill carries the full Obsidian know-how too.
