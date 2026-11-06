@@ -9,6 +9,8 @@ authoring and reliable linking possible.
 type: equipment
 discipline: <Discipline hub name>
 category: <Chiller | Pump | Transformer | Crane | AHU | ...>
+systems: [<System hub>]          # systems this equipment is part of (drives the system hub index)
+spaces: [<Space note>]           # where it sits (drives the space index)
 tags: [equipment, <discipline-lower>, <category-lower>]
 source: [<sheet ids>, <spec sections>, <narrative>]
 phase: <phase>

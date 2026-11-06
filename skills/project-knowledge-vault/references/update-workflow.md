@@ -24,7 +24,8 @@ The vault's value compounds only if it stays current. Treat the project chat as 
 ## Consistency rules
 - Reuse the **exact hub-note names** and the equipment template from the original build.
 - Ensure new `[[wikilinks]]` resolve — create the target note or add an `aliases:` entry. Run
-  `scripts/verify_links.py` after a batch of edits.
+  `scripts/audit_vault.py` (or `scripts/verify_links.py`) after a batch of edits. Before adding a
+  register row, take the highest ID across the register, its sync-conflict copies and the whole vault.
 - If a note already covers the topic, **update it in place** rather than creating a duplicate.
 
 ## Integrating newly added files/folders

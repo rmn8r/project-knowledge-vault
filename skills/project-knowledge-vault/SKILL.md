@@ -42,19 +42,19 @@ If the user wants a recurring refresh, offer a **scheduled task** running Update
 ## Workflow (first build)
 **Phase 0 — Intake & scope.** Confirm the source directory (request folder access if needed; never assume the connected folder is the source). Inventory files with sizes/page-counts (`scripts/extract_text.py` prints these). Confirm with the user: vault location (default: a `… Vault/` subfolder in the project folder), depth (*comprehensive* vs *equipment-first* vs *overview*), and for drawing-heavy sets *index+schedules* vs *every sheet*. Inventory first, then ask with numbers in hand.
 
-**Phase 1 — Extract text.** `scripts/extract_text.py <src> <out>` (PDF via pdftotext, XLSX, PPTX, CSV, .msg, and P6 .xer as a digest of project facts, milestones and the longest path). Keep extracted text in a scratch folder — it's working data, not part of the vault. Large PDFs: pdftotext, never pure-Python (timeouts).
+**Phase 1 — Extract text.** `scripts/extract_text.py <src> <out>` (PDF via pdftotext, XLSX, PPTX, CSV, .msg, and P6 .xer as a digest of project facts, milestones and the longest path). Keep extracted text in a scratch folder — it's working data, not part of the vault. Large PDFs: pdftotext, never pure-Python (timeouts). Large sets: run it per top-level folder (a single run times out around 1,300 PDFs); it is incremental, so re-runs skip what is done.
 
 **Phase 2 — Parse structure & shared context.** Parse the drawing index and spec TOC into index notes + the discipline map. Write `PROJECT_FACTS.md` and `STYLE_GUIDE.md` to scratch (see `references/note-templates.md`). **Fixing exact hub names up front is the single most important step for link consistency.**
 
 **Phase 3 — Skeleton & hubs.** Create the folder structure (`references/vault-structure.md`) and write hub notes yourself (don't delegate hubs — consistency). Hubs: Home, project overview/team/codes/phasing/site, one per discipline, one per system, key spaces, document indexes, **Glossary & Acronyms**.
 
-**Phase 4 — Mine equipment (parallelize).** The bulk. If subagents are available, dispatch one per discipline group, each given the extracted-text paths, `PROJECT_FACTS.md`, `STYLE_GUIDE.md`, the target folder, and the **exact** hub-link names; have each return a compact manifest (files + one-liners + conflicts). Capture real tags, capacities, locations, interdependencies — not generic descriptions.
+**Phase 4 — Mine equipment (parallelize).** The bulk. If subagents are available, dispatch one per discipline group, each given the extracted-text paths, `PROJECT_FACTS.md`, `STYLE_GUIDE.md`, the target folder, and the **exact** hub-link names; have each return a compact manifest (files + one-liners + conflicts). Capture real tags, capacities, locations, interdependencies — not generic descriptions. **Give every subagent its own scratch/staging folder** (parallel agents sharing one folder have left duplicate `n1.md…n9.md` notes in a vault), and keep registers and the change log for yourself.
 
 **Phase 5 — Registers.** Conflicts (`X-#`), Information Gaps (`G-#`), coordination clashes (`C-#`), and an owner-facing Scope Clarifications list with a recommended position each. Route every flagged item here.
 
 **Phase 6 — Connect, verify, persist.**
-1. Run the **hub-indexer** (below) so every hub links its children.
-2. Run the **audit** (below); drive unresolved links → 0 and orphans → 0.
+1. Run the **hub-indexer** (`scripts/link_hubs.py`: preview, then `--write`) so every hub links its children.
+2. Run the **audit** (`scripts/audit_vault.py`); drive unresolved links → 0 and orphans → 0.
 3. Optionally seed graph colors from `assets/graph.json`.
 4. **Write the project memory** (`CLAUDE.md` — below), including the **deliverable folder map** and the **uploaded-files rule**.
 5. Tell the user how to open it (install Obsidian → *Open folder as vault* → start at `00 - Home`).
@@ -78,6 +78,15 @@ If the user wants a recurring refresh, offer a **scheduled task** running Update
 4. Add the register rows + one consolidated, dated change-log entry.
 5. Run the hub-indexer + audit.
 
+### Register IDs, sync-conflict copies, and never deleting
+Cloud sync (OneDrive especially) forks a note when two devices or sessions edit it: `Name-<DEVICE>.md`, `Name-<DEVICE>-2.md`, and copies of copies. Registers fork most, because every session writes to them, and forked registers mint the **same ID twice with different meanings**. Rules:
+- **Find the real high-water mark right before adding a row**: the highest ID across the register, **every conflict copy of it** (`scripts/audit_vault.py` lists them), and **the whole vault** (grep `X-\d+`, `G-\d+`, …), because IDs get cited in notes before they reach a register. The counter in the project `CLAUDE.md` is a hint, not the truth.
+- **Write to the canonical file.** If it is cloud-only and won't hydrate, stage the entry in a dated `… — Pending Merge (YYYY-MM-DD).md` note in `06 - Documents`, never in a conflict copy.
+- **On a collision** (one ID, two meanings), keep the earlier meaning, renumber the later item above the high-water mark, and note "renumbered from X-##" in both places.
+- **Parallel writers use placeholders** (`P-W1-G1`); one orchestrator mints the real IDs and replaces them.
+- **Never delete or merge conflict copies yourself.** List them for the owner in the wrap; merging is their call.
+- **Never delete project or vault files at all: only add or modify.** Clean-ups (stray files, duplicates, scratch) are flagged in the change log and project memory for the owner, not removed.
+
 ---
 ## Comprehensive determination (sweep every relevant source before answering)
 Scope, ownership, cost, and code determinations are **multi-source by nature** — never decide one from a single document. Before concluding, sweep **every** class that could bear on it, read **both sides** of each interface, reconcile, and **cite each source**:
@@ -92,7 +101,23 @@ Use `scripts/vault_search.py` to find what the vault already captured, then open
 
 **COR review is the canonical example:** you cannot adjudicate a COR from its own narrative. Reconcile the **owner contract** (reimbursable / already in base GMP?), the **subcontract** (whose scope — and does a "by others" exclusion move it?), and the **drawings & specs** (shown/required by the contract documents?) — the COR is valid only for the delta none of those already cover. Apply the same sweep to scope-boundary ("who owns it"), NETA/testing, and OFCI/CFCI calls.
 
-Miss this and you get single-source tunnel vision — assigning a scope to the first sub you read, or approving a COR the base contract already covers. When a determination is contested or money/schedule rides on it, quote the exact governing language, not a paraphrase.
+Miss this and you get single-source tunnel vision — assigning a scope to the first sub you read, or approving a COR the base contract already covers.
+
+**Contract questions are answered by quoting the contract.** For any question of scope, who owes what, entitlement, rates or notice, quote the governing clause **verbatim**, with document, exhibit and paragraph or page, **then** interpret. Quote both sides of an interface (owner contract and subcontract) where both apply. Don't paraphrase where the wording decides the answer.
+
+Checks that have caught wrong determinations:
+- **A claim's narrative is the claimant's assertion, not a fact.** Before pricing demolition, repair, restoration or tie-in to something described as existing or damaged, confirm it exists and was built when the claim says: check the schedule (has that activity happened yet? `xer_tool.py activity`) and the drawings. A delivery date is not a set date; the binding date is usually the pour or install.
+- **"Existing" may be someone else's earlier work.** On a fit-out or phased job, the shell or earlier phase may have been built under a separate contract by a different contractor, whose RFIs, submittals and as-builts live in a different project record. Search that record before concluding a sub is reworking its own installation. Also check whether the drawings **deferred** a dimension or location to a later equipment submittal; an installation that predates that submittal is nobody's error.
+- **Easy-to-miss sources that adjudicate scope:** bid-stage RFI responses, responsibility and scope-delineation matrices, scope sheets' "not included in base bid" alternates, and each trade's bid inclusions and exclusions in the precon archive.
+- **Reused-template contamination.** Specs, drawings, product data or bid forms carried over from another site sometimes sit in a project's files. Never cite them for this project. Log each as a conflict and list it under a "Carry-over warning" in the project `CLAUDE.md`.
+
+---
+## Sibling projects (programs with several vaults)
+When one team runs several similar projects (buildings on one campus, phases of a program), each gets its own vault, and a **program-level `CLAUDE.md` in the parent folder** lists them (project · vault path · entry note) with the routing rule:
+- **Answer from the vault of the project asked about.** If it isn't stated, ask, or answer per project. **Never cite one project's facts for another.**
+- **Register IDs and note names repeat across vaults**, so always say which vault a fact or ID comes from, and log edits in the vault you changed.
+- **Use the leading project as an early warning.** If a sibling is further along with the same designers, standards or owner, check whether it already hit the issue (its registers and RFI archive) before answering a design, scope-boundary or equipment question on the trailing one. Cite it as precedent, not as this project's fact.
+- Rules that apply to every project in the program (people, tools, review lenses, writing rules) live once in the program `CLAUDE.md`, not copied into each project.
 
 ---
 ## Connectivity standard (aim for this; audit against it)
@@ -102,6 +127,9 @@ The graph and backlinks *are* the value. A note nothing links to is a defect.
 - **Process chains.** For linear spines (e.g. power: utility→MV switchgear→transformers→switchboards→bus duct/distribution boards→panelboards→white-space power→racks; cooling: chillers→pumps→valves→AHUs, and any liquid-cooling loop), give each spine note a short **"## Power chain" / "## Cooling chain"** line showing upstream→downstream with links, so the chain is traversable from any stop.
 - **Bidirectional registers.** Any note named in a conflict/gap links the register back (a one-line "## Open items → [[Conflicts & Issues Register]] · [[Information Gaps & Open Questions]]").
 - **No orphans.** 0 inbound links is allowed only for Home/templates/README.
+- **Repair a broken link by adding an alias to the target note** when the link text is a legitimate name for it, rather than rewriting the link. Other sessions' link text keeps working, and it is the Obsidian-native fix.
+- **System and space membership is declared, not inferred.** An equipment note lists its `systems:` and `spaces:` in frontmatter; mentioning a system in prose (a chiller note naming the switchboard that feeds it) does not make it a member.
+- **People notes:** a person gets a note only when linked by name from another note (thread participant, approver, named sender). Firms, roles and the org chart stay in the project directory.
 - Run the **hub-indexer** whenever equipment notes are added; run the **audit** after any batch of edits.
 
 ---
@@ -167,10 +195,21 @@ Generated outputs must land in the **topic subfolder that fits**, never the proj
 - **If nothing fits, create a new, sensibly-named subfolder** (topic- or discipline-based, matching the project's existing naming style) rather than dropping the file in root — then add it to the folder map.
 - **Keep the folder map current.** When you add an output or the user reorganizes files, refresh the paths + folder map in both the deliverables index note and the project `CLAUDE.md`, and add a dated change-log line.
 - A typical construction/AEC map (adapt names to the project): `Financial/` (cost/COR/exposure/change logs) · `Schedule/` (P6 exports, baseline-shift, `Baseline XERs/`) · a commissioning/QA hub such as `Cx/` with per-activity subfolders (`Cx Inspections/`, `Cx Schedule/`, `Cx Observations/`, `Cx-Flores/`, `Energization/`, …) · `OFCI/` (owner-furnished trackers) · `Markups/` (one-lines, marked drawings) · `Team/` (org/roster). Non-AEC projects use their own equivalents (e.g. `Reports/`, `Data/`, `Exports/`, `Diagrams/`).
+- **Tool-building scratch** (build scripts, session JSONs, patch files, deploy folders) goes in its own `_build/`-style subfolder or outside the project, not loose in a topic folder. Flag strays in the change log; don't delete them.
+
+**Confidential material.** Some files in a shared project folder are restricted: payroll and HR records, internal-only cost reports and SOVs, owner-confidential documents. Index them by name, purpose and date only; never copy their contents, personal details or rates into notes. If you find **secrets** (tokens, keys, passwords) or project data **published to a public URL** without a login, log it as a gap for the owner straight away and never copy the secret into the vault.
 
 ---
 ## Project memory & transferability
-At the end of a build, and whenever conventions change, write/refresh a **`CLAUDE.md` at the *project root*** (the shared folder that holds both the vault and the source docs — not just inside the vault). This is what lets a future session or a new teammate extend rather than rebuild. Keep paths **relative** to the shared root so it stays valid for anyone who syncs the folder. Template:
+At the end of a build, and whenever conventions change, write/refresh a **`CLAUDE.md` at the *project root*** (the shared folder that holds both the vault and the source docs — not just inside the vault). This is what lets a future session or a new teammate extend rather than rebuild. Keep paths **relative** to the shared root so it stays valid for anyone who syncs the folder.
+
+**Keep it short: it is loaded into every session.** It holds rules, pointers and the current state, not history.
+- The register line is **one line of next safe IDs, overwritten each time** (`Next safe IDs (YYYY-MM-DD): X-## / G-## / SC-## / C-##`). Never append "Earlier: …" lines.
+- File-scan and email-sync results, counts and per-pass notes go in the **`Vault Change Log`**, not here.
+- Aim for under ~10 KB. A memory file that grows into tens of KB of run-on history costs every session tokens, buries the rules, and is more likely to be overwritten in a sync race.
+- When it has grown, move the history into the change log (keep the text; don't delete it), and leave the rules and current state.
+
+Template:
 
 ```markdown
 # <Project> — Project Memory
@@ -179,8 +218,9 @@ Working context for future sessions. This folder is the shared project root; pat
 ## Knowledge vault
 - Location: `<Project> Vault/` (Obsidian). Start at `00 - Home.md`.
 - Living-vault workflow: answer first, then log findings/gaps/conflicts (+ aliases/glossary), then a dated `Vault Change Log` entry.
-- Registers: Conflicts `X-#` (currently to **X-##**), Info Gaps `G-#` (to **G-##**), coordination `C-#`.
-- Keep the exact hub names + templates so `[[wikilinks]]` stay consistent; run the audit after edits.
+- Next safe IDs (YYYY-MM-DD): **X-## / G-## / SC-## / C-##**. One line, overwritten; check every conflict copy and the whole vault before minting.
+- Keep the exact hub names + templates so `[[wikilinks]]` stay consistent; run `scripts/audit_vault.py` after edits.
+- Never delete project or vault files; only add or modify. Conflict copies are merged by the owner.
 - Fast relevance search: `scripts/vault_search.py "<Project> Vault" "<question>"` (model-free BM25, runs anywhere).
 
 ## Source documents (same shared folder)
@@ -195,6 +235,12 @@ Save each output into the matching topic subfolder; the root holds only `CLAUDE.
 - `Cx/` (or the project's commissioning/QA hub) — with subfolders per activity (e.g. `Cx Inspections/`, `Cx Schedule/`, `Cx Observations/`, `Cx-Flores/`, `Energization/`).
 - `OFCI/` (owner-furnished trackers) · `Markups/` (one-lines, marked drawings) · `Team/` (org/roster).
 - If a new output fits none of these, **create a sensibly-named subfolder** rather than dropping it in root.
+
+## Carry-over warning
+Files in this set that carry another site's content and must never be cited here: `…` (conflict ID).
+
+## Team rules
+Standing instructions from the team, each with who and when (e.g. "contract questions: quote the clause verbatim (<name>, <date>)").
 
 ## Cloud-sync caveat (the real fragility — not the path)
 Files here are cloud-synced; some are cloud-only placeholders ("dehydrated") that error on tooling reads. The Read tool hydrates them; bash/pure-python may fail with "Invalid argument" — this is NOT corruption. Fix: right-click → "Always keep on this device," let it sync, retry. Known dehydrated: `…`.
@@ -216,98 +262,16 @@ Common ones: phased construction schedule, buyout log by CSI division, owner sco
 ---
 ## Cloud-synced files (dehydration) — operational rule
 On OneDrive/SharePoint/Dropbox, files can be **cloud-only placeholders**. A read that fails with `Invalid argument` / `Errno 22` is almost always dehydration, **not corruption or a bad path**. Use the Read tool (it downloads/hydrates) for individual files; when scanning many files in bash/python, wrap reads in `try/except` and **report** unreadable files rather than crash. Remedy for the user: File Explorer → right-click file/folder → **"Always keep on this device."** Never conclude "corrupt" from a read error alone.
+- **Bulk hydration:** running the host's Grep/search tool over a dehydrated folder usually forces the whole folder to download, after which shell tools work. It can still fail on some files (OS error 362); fall back to the Read tool, or ask the user to mark the folder "Always keep on this device."
+- **Detect new and changed files by comparing file lists, never by modified time.** Cloud sync preserves original timestamps, so a "newer than" scan misses files that arrived today. Keep a manifest (`06 - Documents/.file-manifest.json`: relative path, size, whole-second mtime) and diff each scan against it. Walk large trees one top-level folder at a time (deeper for very large folders) so each walk finishes inside the sandbox timeout. Office lock files (`~$…`) are not documents.
 
 ---
-## Audit & health check (embedded — resilient)
-The bundled `scripts/verify_links.py` checks link resolution but **reads files without guarding, so it aborts on the first cloud-only file.** Prefer this resilient audit — it tolerates unreadable files, strips code spans, and reports orphans, in-degree, and hub-index completeness. Write it to scratch and run `python audit.py "<vault>"`:
-
-```python
-import os,re,glob,sys
-from collections import defaultdict,Counter
-root=sys.argv[1]; files=glob.glob(os.path.join(root,"**","*.md"),recursive=True)
-names={os.path.splitext(os.path.basename(f))[0].lower():f for f in files}; aliases={}; unread=[]
-code=re.compile(r"```.*?```|`[^`]*`|<!--.*?-->",re.S); link=re.compile(r"\[\[([^\]]+?)\]\]")
-def norm(t): return t.split("|")[0].split("#")[0].split("^")[0].strip()
-txts={}
-for f in files:
-    try: txts[f]=open(f,encoding="utf-8").read()
-    except Exception: unread.append(f)                 # cloud-only/dehydrated — skip, don't crash
-for f,t in txts.items():
-    m=re.search(r"^---\n(.*?)\n---",t,re.S)
-    if m:
-        am=re.search(r"aliases:\s*\[(.*?)\]",m.group(1))
-        if am:
-            for a in am.group(1).split(","):
-                a=a.strip().strip("\"'").lower()
-                if a: aliases[a]=f
-out=defaultdict(set); indeg=Counter(); unresolved=defaultdict(set)
-for f,t in txts.items():
-    for lk in set(link.findall(code.sub("",t))):
-        k=norm(lk).lower()
-        if not k: continue
-        if k in names or k in aliases: tgt=names.get(k) or aliases[k]; out[f].add(tgt); indeg[tgt]+=1
-        elif os.sep+"98 - Templates"+os.sep not in f and "README" not in f: unresolved[f].add(norm(lk))
-orph=[f for f in files if indeg.get(f,0)==0 and not any(x in f for x in ("00 - Home","98 - Templates","README","Change Log"))]
-print("notes",len(files),"| readable",len(txts),"| cloud-only",len(unread))
-print("UNRESOLVED links:",sum(len(v) for v in unresolved))
-for f,v in unresolved.items(): print("  ",f,"->",sorted(v))
-print("ORPHANS (0 inbound):",len(orph))
-for f in orph: print("  ",f)
-for f in unread: print("  cloud-only (hydrate to audit):",f)
-```
-
-## Hub back-link indexer (embedded — idempotent)
-Makes every hub index its children: disciplines from each equipment note's frontmatter `discipline:`; systems/spaces from who links to them. Idempotent — safe to re-run; only adds missing links. Insert a `## Indexed equipment` (disciplines), `## Related equipment` (systems), or `## Equipment & systems here` (spaces) section before the first of `## Issues/## Related/## Interdependencies/## Notes`, else at end.
-
-```python
-import os,re,glob,sys,yaml
-from collections import defaultdict
-root=sys.argv[1]; files=glob.glob(os.path.join(root,"**","*.md"),recursive=True)
-names={os.path.splitext(os.path.basename(f))[0]:f for f in files}
-def read(f):
-    try: return open(f,encoding="utf-8").read()
-    except: return None
-link=re.compile(r"\[\[([^\]#|]+)"); out=defaultdict(set); disc={}
-for b,f in names.items():
-    t=read(f);
-    if t is None: continue
-    for l in link.findall(t): out[f].add(l)
-    m=re.search(r"^---\n(.*?)\n---",t,re.S)
-    if m:
-        try: disc[f]=(yaml.safe_load(m.group(1)) or {}).get("discipline")
-        except: pass
-inn=defaultdict(set)
-for f,ts in out.items():
-    for t in ts:
-        if t in names: inn[names[t]].add(f)
-ANCH=["## Issues","## Interdependencies","## Related","## Ties","## Notes","## Open"]
-def inject(hubf,hdr,members):
-    t=read(hubf)
-    if t is None: return 0
-    miss=[m for m in members if f"[[{m}]]" not in t]
-    if not miss: return 0
-    if hdr in t:  # extend existing section's first line
-        mo=re.search(re.escape(hdr)+r"\s*\n(.*?)(\n)",t,re.S)
-        t=t[:mo.start(1)]+mo.group(1).rstrip()+" · "+" · ".join(f"[[{m}]]" for m in miss)+t[mo.end(1):]
-    else:
-        line=hdr+"\n"+" · ".join(f"[[{m}]]" for m in miss)+"\n"
-        pos=min([m.start() for a in ANCH for m in [re.search(r"^"+re.escape(a),t,re.M)] if m] or [len(t)])
-        t=t[:pos]+"\n"+line+"\n"+t[pos:]
-    open(hubf,"w",encoding="utf-8").write(t); return len(miss)
-n=0
-# disciplines: equipment whose frontmatter discipline maps to a hub filename
-for hubf in [f for f in files if os.sep+"02 - Disciplines"+os.sep in f]:
-    hubname=os.path.splitext(os.path.basename(hubf))[0]
-    mem=sorted(os.path.splitext(os.path.basename(x))[0] for x,d in disc.items() if d and (d in hubname or hubname in str(d)) and os.sep+"04 - Equipment"+os.sep in x)
-    if mem: n+=inject(hubf,"## Indexed equipment",mem)
-# systems & spaces: back-links from equipment
-for folder,hdr in [("03 - Systems","## Related equipment"),("05 - Spaces","## Equipment & systems here")]:
-    for hubf in [f for f in files if os.sep+folder+os.sep in f]:
-        mem=sorted(os.path.splitext(os.path.basename(x))[0] for x in inn.get(hubf,()) if os.sep+"04 - Equipment"+os.sep in x)
-        if mem: n+=inject(hubf,hdr,mem)
-print("links added:",n)
-```
-After running either script, re-run the audit and confirm 0 unresolved / 0 orphans.
+## Audit, link check and hub indexing (scripts)
+All three are standard-library Python, tolerate cloud-only files (skip and report them), and read aliases in both YAML forms (inline `aliases: [a, b]` and block lists), case-insensitively like Obsidian.
+- **Audit** (read-only): `python scripts/audit_vault.py "<vault>"`. Reports unresolved links (per note), orphans, the in-degree spread, discipline-hub completeness, and **sync-conflict copies** of notes (with the original each one copies). Run it after every batch of edits; drive unresolved and orphans to 0. Conflict copies are listed for the owner, never deleted.
+- **Link check** (read-only, exits non-zero on broken links, so it can gate a build): `python scripts/verify_links.py "<vault>"`.
+- **Hub indexer**: `python scripts/link_hubs.py "<vault>"` **previews** the links it would add; add `--write` to apply. Discipline hubs list equipment by its frontmatter `discipline:`; system hubs and spaces list equipment by its frontmatter `systems:` / `spaces:` (scalar, list or wikilinks). It never infers membership from links, and it skips conflict copies. `--from-links` restores the old link-based rule for vaults without those fields; review its preview first, because a note that mentions a system is not necessarily part of it.
+- After `--write`, re-run the audit and confirm 0 unresolved / 0 orphans.
 
 ---
 ## Reference files (read as needed — progressive disclosure)
@@ -318,7 +282,9 @@ After running either script, re-run the audit and confirm 0 unresolved / 0 orpha
 
 ## Scripts
 - `scripts/extract_text.py` — batch extraction + inventory. `python extract_text.py <src> <out>`.
-- `scripts/verify_links.py` — link check (note: guard reads / prefer the embedded resilient **audit** above on cloud-synced vaults).
+- `scripts/audit_vault.py` — vault health audit: unresolved links, orphans, hub completeness, sync-conflict copies. Read-only.
+- `scripts/verify_links.py` — link check; exits non-zero on broken links. Read-only.
+- `scripts/link_hubs.py` — hub indexer from frontmatter `discipline:` / `systems:` / `spaces:`; previews by default, `--write` to apply.
 - `scripts/vault_search.py` — model-free BM25 relevance search over the vault notes (alias/tag-boosted, cited, runs anywhere; no model/deps). `python vault_search.py "<vault>" "<question>" [-k N] [--path P] [--tag T] [--json]`; optional `build "<vault>"` writes a tiny `.vaultidx.json` cache.
 - `scripts/xer_tool.py` — Primavera P6 .xer analysis: summary, activities/WBS/relationships/calendars/resources, **longest (driving) path**, **update/baseline diff**, **milestone gap check** (`gaps`), **DCMA 14-point**, earned value, float paths, CSV export. `python xer_tool.py <command> <file.xer> [...]` (`-h` for all options). Stdlib only, read-only.
 - `scripts/intake_upload.py` — chat-upload intake helper: sha1 de-dup against the target folder, then a no-overwrite copy. `python intake_upload.py <upload_file> <project_root> <target_subfolder> [--name "Descriptive Name.ext"]` → JSON `{"saved", "duplicate_of", "sha1"}`. Stdlib only.
@@ -349,6 +315,8 @@ This is a one-time recommendation, not a blocker — the embedded copies already
 - **Meaning lives in the notes, not a model:** encode synonyms/acronyms as `aliases`/`tags` + a glossary; search is a model-free BM25 over the notes (`vault_search.py`) — nothing to install, sync, or let go stale.
 - **Log as you go, don't ask to log:** capture material findings the same turn, automatically; only ask the user about genuine decisions or destructive actions.
 - **Track problems, don't bury them:** conflicts and gaps get registers.
+- **Add and modify, never delete.** Duplicates, sync-conflict copies and stray files are flagged for the owner, not removed. Mint IDs from the highest across every copy and the whole vault.
+- **Project memory is short and current.** `CLAUDE.md` holds rules, pointers and the next safe IDs; history lives in the Vault Change Log.
 - **Persist for the next person:** a project-memory `CLAUDE.md` + a glossary make the skill transferable.
 - **A read error on cloud storage is dehydration, not corruption:** hydrate, don't conclude "corrupt."
 - **DD/draft caveat:** if documents are design/draft stage, say so in notes — values change.

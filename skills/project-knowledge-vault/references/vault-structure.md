@@ -44,6 +44,8 @@ Grounding & lightning protection · Building management/controls · plus any pro
 type: home | project | discipline | system | equipment | space | document | document-index | register | log
 discipline: <discipline hub name, when applicable>
 category: <e.g. Chiller, Transformer, Crane>          # equipment notes
+systems: [<system hub name>, ...]                      # equipment notes: systems it is PART of
+spaces: [<space note name>, ...]                       # equipment notes: where it is located
 tags: [<type>, <discipline-lower>, <category-lower>]
 source: [<sheet ids / spec sections / report + page>]
 phase: <project phase, if applicable>
