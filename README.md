@@ -76,9 +76,9 @@ ATTRIBUTION.md
 
 ## Scripts
 - `scripts/extract_text.py <src_dir> <out_dir>` — batch text extraction + inventory (PDF/XLSX/PPTX/CSV/MSG, plus a digest of each P6 .xer).
-- `scripts/verify_links.py <vault_dir>` — checks all Obsidian wikilinks resolve.
-- `scripts/audit_vault.py <vault_dir>` — vault health/coverage audit.
-- `scripts/link_hubs.py <vault_dir>` — regenerates hub-note indexes.
+- `scripts/verify_links.py <vault_dir>` — checks all Obsidian wikilinks resolve (aliases in either YAML form, case-insensitive); exits non-zero on broken links.
+- `scripts/audit_vault.py <vault_dir>` — vault health audit: unresolved links, orphans, hub completeness, and OneDrive/Dropbox sync-conflict copies of notes. Read-only.
+- `scripts/link_hubs.py <vault_dir> [--write]` — hub-note indexes from equipment frontmatter (`discipline:`, `systems:`, `spaces:`); previews unless `--write`.
 - `scripts/vault_search.py <vault_dir> "<question>"` — model-free BM25 relevance search over
   the notes; see **Relevance search over the notes** above.
 - `scripts/xer_tool.py <command> <file.xer>` — Primavera P6 schedule analysis with no install

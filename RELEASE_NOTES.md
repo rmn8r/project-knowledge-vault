@@ -1,68 +1,55 @@
-# Release notes - project-knowledge-vault 1.3.0
+# Release notes - project-knowledge-vault 1.4.0
 
-**Released:** 2026-11-06. **Includes:** 1.1.0 (chat-upload intake), which has not yet been
-merged to `main`.
+**Released:** 2026-11-06. This is a maintenance release: the vault audit tools now report
+accurately, and lessons from running the skill on real projects are now part of the skill
+itself.
 
 ## Highlights
 
-### P6 schedules are now analysed by the skill
-Questions about a Primavera P6 `.xer` are now answered with a bundled tool,
-`scripts/xer_tool.py`, instead of a parser written fresh each session. It needs no install
-(standard-library Python only) and never changes the XER.
+### The audit tools now tell the truth
+| | Before | Now |
+|---|---|---|
+| Unresolved-link count | Summed file-name lengths (4,348 on a vault with 75 real breaks) | Counts broken links per note |
+| Aliases written as a block list | Ignored, so links to them showed as broken | Read in both YAML forms |
+| Link matching | Case-sensitive | Case-insensitive, like Obsidian |
+| `verify_links.py` on Windows | Crashed when every link resolved | Fixed |
+| Hub indexer | Filed equipment under any system it linked to | Files by `systems:` / `spaces:` frontmatter; previews before writing |
+| Sync-conflict copies (`Note-DEVICE-2.md`) | Counted as orphans and indexed as equipment | Listed separately, with the original each one copies; skipped by the indexer |
 
-| You want to know | Run |
-|---|---|
-| What is driving the finish? | `longest-path <xer> [--to CODE]` |
-| What changed since the last update or the baseline? | `diff <old.xer> <new.xer>` |
-| Did the milestone gaps hold in the new baseline, TIA or mitigation? | `gaps <old.xer> <new.xer> --keys NEA,H2C,PFHO` |
-| Is the schedule technically sound? | `dcma <xer> [--baseline BL.xer]` |
-| Cost or hours performance | `earned-value <xer> [--baseline BL.xer]` |
-| Quick facts, listings, one activity | `summary`, `activities`, `activity`, `wbs`, `relationships`, `calendars`, `resources` |
+Run `python scripts/audit_vault.py "<vault>"` for the health check. `python scripts/link_hubs.py "<vault>"`
+now only previews; add `--write` to apply.
 
-Each command prints Markdown. Add `--json`, `--out report.md`, or `--csv <dir>` to get a table
-you can hand to the xlsx skill for a workbook.
-
-### Milestone gap check (`gaps`)
-Built from a hand-made Excel comparison of milestones by phase. Give it the versions oldest
-first. For each phase/ROMP it reports:
-- **Delta:** how far each milestone moved against the reference version.
-- **Stagger:** the gap to the same milestone in the previous phase.
-- **Steps:** the gaps inside the phase, for example NEA → H2C → PFHO.
-- **Squeezed gaps:** gaps tighter than in the reference, worst first.
-- **Flags:** zero or out-of-sequence gaps, marked *new* or *already so in the reference*.
-- **Cadence summary:** the minimum, mean and maximum of each gap type.
-
-Dates that exist only in a narrative table or a marked-up image can be supplied as a
-three-column CSV (`Group,Milestone,Date`) alongside the XERs. Phases are found from the
-activity name ("ROMP 3: … (NEA)"), else the WBS node ("ROMP 03"), else the activity code.
-
-### Accuracy
-- `longest-path` matched P6's own longest-path flags exactly on all 24 real schedules tested.
-- `gaps` reproduced every figure in the reference Excel analysis: 118 of 118 dates, deltas and
-  gaps.
-
-### Also in this release (from 1.1.0)
-- **Intake mode.** Files dragged into the chat are saved into the right project folder and
-  indexed in the vault, so later sessions know they exist.
+### New rules in the skill
+- **Register IDs:** before adding a row, take the highest ID across the register, its sync-conflict
+  copies and the whole vault. Collisions are renumbered, and parallel writers use placeholders.
+- **Add and modify, never delete.** Conflict copies and stray files are flagged for the owner.
+- **Contract questions:** quote the governing clause verbatim, with document, exhibit and paragraph,
+  then interpret.
+- **Checks before a determination:**
+  - test a claim's physical premise against the schedule and drawings;
+  - "existing" may be another contractor's earlier work;
+  - drawings may defer a dimension to a later submittal;
+  - watch for content carried over from another site.
+- **Sibling projects:** route by project, never cite one project's facts for another, and check
+  the project that is further along.
+- **Cloud sync:**
+  - bulk hydration, with a fallback;
+  - detect new files by comparing file lists, never by modified date;
+  - walk large trees one folder at a time.
+- **Confidential material:** index restricted files by name only, and flag secrets and public URLs.
+- **Keep the project `CLAUDE.md` short.** It holds one overwritten line of next safe IDs; history
+  goes in the Vault Change Log.
 
 ## Upgrading
-
-- **Claude Code (plugin):** after this is merged to `main`, run
-  `/plugin marketplace update project-knowledge-vault`, then reinstall or update the plugin.
-- **Cowork / claude.ai:** Cowork uses the copy saved in your claude.ai account, not GitHub. In
-  claude.ai go to **Settings → Capabilities → Skills**, then replace `project-knowledge-vault`
-  with the `project-knowledge-vault.skill` file from this repo. Start a new session afterwards.
-- Existing vaults need no migration. Schedule commands work on any `.xer` in the project's
-  `Schedule/` folders.
-
-## Known limitations
-
-- The tool reads P6's last calculated dates; it does not reschedule. Export after F9 for current
-  dates.
-- One longest-path rule (an SS lag driving an activity that has already started) rests on a
-  single observed case. All 24 test schedules match, but evidence for that rule is thin.
-- Resource over-allocation reads P6 resource limits literally, so placeholder resources can show
-  meaningless peaks.
-- Without `--baseline`, DCMA checks #11 and #14 use the XER's planned dates and say so.
+- **Claude Code (plugin):** `/plugin marketplace update project-knowledge-vault`, then update the
+  plugin.
+- **Cowork / claude.ai:** Settings → Capabilities → Skills, then replace `project-knowledge-vault`
+  with the `.skill` file from this release. Start a new session.
+- **Existing vaults:**
+  - Nothing to migrate.
+  - To let the hub indexer place equipment on system and space hubs, add `systems:` / `spaces:` to
+    equipment frontmatter.
+  - Hubs you curated by hand are left alone.
+  - Re-run the audit: its numbers will drop sharply, because the old ones were inflated.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.

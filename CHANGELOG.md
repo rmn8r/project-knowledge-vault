@@ -5,6 +5,63 @@ All notable changes to the project-knowledge-vault plugin and skill. The format 
 [Semantic Versioning](https://semver.org/). The version is the one in
 `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
 
+## [1.4.0] - 2026-11-06
+
+### Fixed
+- **`audit_vault.py`:**
+  - The unresolved-link total summed the lengths of file names instead of counting links. On
+    real vaults it reported 4,348, 1,063 and 125 broken links where the true counts were 75, 4
+    and 28.
+  - Aliases written as a YAML block list (`aliases:` followed by `- name` lines) were ignored,
+    so links to them showed as broken.
+  - It no longer needs PyYAML for its discipline-hub check.
+- **`verify_links.py`:**
+  - Block-list aliases were ignored, same as the audit.
+  - Links were matched case-sensitively, unlike Obsidian.
+  - It crashed on a Windows console when every link resolved, because it printed a character the
+    console can't encode.
+- **`link_hubs.py`:**
+  - System and space membership was inferred from any link to the hub, so equipment was filed
+    under systems it only mentions. On one real vault it proposed 194 such links, for example
+    chillers under electrical distribution.
+  - Membership now comes from equipment frontmatter (`discipline:`, `systems:`, `spaces:`).
+  - It previews by default; `--write` applies. `--from-links` keeps the old rule as an explicit
+    option.
+- SKILL.md no longer embeds stale copies of the audit and indexer, which carried the same bugs.
+  It points to the scripts instead.
+
+### Added
+- **Sync-conflict copy detection.** `audit_vault.py` lists OneDrive/Dropbox conflict copies of
+  notes (`Name-<DEVICE>[-n].md`, including copies of copies) together with the original each one
+  copies. They are no longer reported as orphans, and the indexer skips them.
+- SKILL.md rules drawn from real project use:
+  - **Register IDs:** before adding a row, take the highest ID across the register, every
+    conflict copy of it and the whole vault. Write to the canonical file, or to a dated
+    pending-merge note when it can't be read. Renumber collisions. Parallel writers use
+    placeholders.
+  - **Never delete project or vault files; only add or modify.** The owner merges conflict copies.
+  - **Contract questions:** always quote the governing clause verbatim, then interpret.
+  - **Checks that have caught wrong determinations:** test a claim's physical premise against
+    the schedule and drawings; "existing" may be another contractor's earlier work; drawings may
+    defer a dimension to a later submittal; sources that are easy to miss; content carried over
+    from another site.
+  - **Sibling projects:** a program-level `CLAUDE.md`, routing by project, and never citing one
+    project's facts for another. IDs repeat across vaults. Check the project that is further
+    along.
+  - **Cloud sync:** download whole folders by searching them, with a fallback; detect new files
+    by comparing file lists, never by modified date; walk large trees one folder at a time.
+  - **Confidential material:** index restricted files by name only, and flag secrets and public
+    URLs to the owner.
+  - **Tidy folders:** each subagent gets its own scratch folder, and tool-building scratch goes in
+    its own folder.
+  - **Links and notes:** fix a broken link by adding an alias to the target, and give a person a
+    note only when they are named in another note.
+  - **Keep the project `CLAUDE.md` short:** one overwritten line of next safe IDs, with history
+    kept in the Vault Change Log. The template gains "Carry-over warning" and "Team rules"
+    sections.
+- The equipment template and frontmatter spec gain `systems:` and `spaces:`.
+- `extract_text.py` guidance: run large sets one top-level folder at a time.
+
 ## [1.3.0] - 2026-11-06
 
 ### Added
@@ -93,6 +150,7 @@ All notable changes to the project-knowledge-vault plugin and skill. The format 
   extraction, Windows MAX_PATH handling and skipping Office lock files.
 - `extract_text.py` became incremental, and its `--record` option was removed.
 
+[1.4.0]: https://github.com/rmn8r/project-knowledge-vault/releases/tag/v1.4.0
 [1.3.0]: https://github.com/rmn8r/project-knowledge-vault/releases/tag/v1.3.0
 [1.1.0]: https://github.com/rmn8r/project-knowledge-vault/releases/tag/v1.1.0
 [1.0.0]: https://github.com/rmn8r/project-knowledge-vault/releases/tag/v1.0.0
