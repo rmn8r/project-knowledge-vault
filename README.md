@@ -12,6 +12,9 @@ document. Built for construction/AEC projects but domain-agnostic.
 - **Ask:** answer project questions from the vault, with sources cited.
 - **Update:** when new files/folders are added, integrate just the new material and keep the vault in sync.
 - **Verify:** every `[[wikilink]]` is checked to resolve.
+- **Schedules:** analyse Primavera P6 `.xer` files: driving path, update diff, milestone gap check, DCMA, earned value.
+
+What's new: [RELEASE_NOTES.md](RELEASE_NOTES.md). Full history: [CHANGELOG.md](CHANGELOG.md). Downloads: [Releases](https://github.com/rmn8r/project-knowledge-vault/releases).
 
 ## Install
 **As a plugin (recommended — installs all seven skills):**
@@ -24,7 +27,7 @@ That brings `project-knowledge-vault` plus the six bundled Obsidian open-format 
 first-class siblings, reference files included.
 
 **As a single skill:**
-- **Claude (Cowork / claude.ai):** download `project-knowledge-vault.skill` and use **Save skill**
+- **Claude (Cowork / claude.ai):** download `project-knowledge-vault.skill` (from the latest [release](https://github.com/rmn8r/project-knowledge-vault/releases/latest)) and use **Save skill**
   (Settings → Capabilities), or drop the `skills/project-knowledge-vault/` folder into your skills
   directory. The six companions are embedded inside it under `references/obsidian-skills/`, so the
   standalone skill carries the full Obsidian know-how too.
@@ -61,7 +64,8 @@ skills/
     references/                     # vault-structure, note-templates, extraction-playbook, update-workflow
       obsidian-skills/              # the six kepano skills, embedded so this skill is self-contained
     scripts/                        # extract_text.py, verify_links.py, audit_vault.py, link_hubs.py,
-                                    # vault_search.py (model-free BM25 search)
+                                    # vault_search.py (model-free BM25 search), intake_upload.py,
+                                    # xer_tool.py (P6 .xer schedule analysis)
     assets/                         # graph.json (Obsidian graph color groups)
   obsidian-markdown/  obsidian-bases/  json-canvas/     # vendored from kepano/obsidian-skills (MIT),
   obsidian-cli/       defuddle/        knap/            # installed as first-class sibling skills
@@ -71,12 +75,21 @@ ATTRIBUTION.md
 ```
 
 ## Scripts
-- `scripts/extract_text.py <src_dir> <out_dir>` — batch text extraction + inventory (PDF/XLSX/PPTX/CSV/MSG).
+- `scripts/extract_text.py <src_dir> <out_dir>` — batch text extraction + inventory (PDF/XLSX/PPTX/CSV/MSG, plus a digest of each P6 .xer).
 - `scripts/verify_links.py <vault_dir>` — checks all Obsidian wikilinks resolve.
 - `scripts/audit_vault.py <vault_dir>` — vault health/coverage audit.
 - `scripts/link_hubs.py <vault_dir>` — regenerates hub-note indexes.
 - `scripts/vault_search.py <vault_dir> "<question>"` — model-free BM25 relevance search over
   the notes; see **Relevance search over the notes** above.
+- `scripts/xer_tool.py <command> <file.xer>` — Primavera P6 schedule analysis with no install
+  (standard-library Python, read-only): summary, activity/WBS/logic/calendar/resource listings,
+  the **longest (driving) path** traced through P6's own dates and calendars (matched P6's
+  longest-path flags on all 24 schedules tested), a **milestone `gaps` check** across baselines/TIAs (phase
+  stagger and NEA-H2C-PFHO steps, squeezed or out-of-sequence gaps), an **update/baseline `diff`** (finish and
+  milestone movement, path churn, progress vs plan, rewritten actuals, logic/duration/constraint
+  edits), the **DCMA 14-point** check, earned value, float paths and CSV export.
+- `scripts/intake_upload.py <upload_file> <project_root> <target_subfolder> [--name N]` — saves a
+  file dropped into the chat: sha1 de-dup against the target folder, then a no-overwrite copy.
 
 ## Credits / third-party skills
 `obsidian-markdown`, `obsidian-bases`, `json-canvas`, `obsidian-cli`, `defuddle`, and `knap` are
