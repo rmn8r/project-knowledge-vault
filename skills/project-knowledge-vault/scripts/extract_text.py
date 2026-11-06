@@ -6,7 +6,8 @@ Usage:  python extract_text.py <source_dir> <out_dir> [--force]
 Incremental: a source whose extracted .txt is at least as new as it is gets
 skipped. Pass --force to re-extract everything.
 
-Handles PDF (pdftotext), XLSX (openpyxl), PPTX (slide XML), CSV/TXT, and .msg (strings).
+Handles PDF (pdftotext), XLSX (openpyxl), PPTX (slide XML), CSV/TXT, .msg (strings),
+and P6 .xer schedules (digest via xer_tool.py: summary, milestones, longest path).
 Writes one <name>.txt per source and an INVENTORY.md (file list + sizes + PDF page counts).
 Text is *working data* for building the vault, not part of the vault itself.
 """
@@ -169,6 +170,20 @@ def extract_msg(path, out):
         f.write("=== UTF-16 strings ===\n" + a + "\n=== ASCII strings ===\n" + b)
     return True
 
+def extract_xer(path, out):
+    """P6 schedule: write a readable digest (project facts, milestones, longest
+    path) via the sibling xer_tool.py. Deeper analysis is run on demand."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import xer_tool
+        text = xer_tool.text_summary(path)
+    except Exception as e:
+        print("  xer error:", e)
+        return False
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(text)
+    return True
+
 def safe(name):
     return re.sub(r"[^A-Za-z0-9._-]+", "_", name)
 
@@ -233,6 +248,7 @@ def main():
                 try: shutil.copy(p, txt); ok = True
                 except Exception as e: print("  copy error:", e)
             elif ext == "msg": ok = extract_msg(p, txt)
+            elif ext == "xer": ok = extract_xer(p, txt)
             else:
                 inv.append((rel, f"{size} KB", pages, "skipped (unsupported)")); continue
             inv.append((rel, f"{size} KB", pages, "ok" if ok else "FAILED"))

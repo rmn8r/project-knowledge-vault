@@ -1,6 +1,6 @@
 ---
 name: "project-knowledge-vault"
-description: "Turn a folder of project documents (drawings, specs, schedules, reports, emails, decks) into a linked Obsidian knowledge-base vault, then KEEP it alive as the project chat continues. Use to \"set up a new project / build a vault / review & organize these files / index a construction or engineering project,\" to answer questions from a document set, to integrate newly added files (including any file the user drags or attaches into the chat, which is auto-saved to the right project folder and indexed), or to log findings/decisions mid-conversation. Also keeps generated deliverables organized in topic subfolders and indexed with a synopsis of their contents, and offers a lightweight model-free in-vault relevance search (BM25 over the notes, no model/GPU/deps). Construction/AEC is the primary use case but the workflow is domain-agnostic."
+description: "Turn a folder of project documents (drawings, specs, schedules, reports, emails, decks) into a linked Obsidian knowledge-base vault, then KEEP it alive as the project chat continues. Use to \"set up a new project / build a vault / review & organize these files / index a construction or engineering project,\" to answer questions from a document set, to integrate newly added files (including any file the user drags or attaches into the chat, which is auto-saved to the right project folder and indexed), or to log findings/decisions mid-conversation. Also keeps generated deliverables organized in topic subfolders and indexed with a synopsis of their contents, offers model-free in-vault search (BM25, no deps), and analyzes Primavera P6 .xer schedules (driving path, update/baseline diff, milestone gap checks between baselines/TIAs, DCMA 14-point, EV) for any .xer question. Construction/AEC is the primary use case but the workflow is domain-agnostic."
 ---
 
 # Project Knowledge Vault
@@ -33,6 +33,7 @@ Invoked automatically when a request matches, or explicitly via `/project-knowle
 | **Intake — file dropped in chat** | the user drags/attaches **any** file into the conversation (with or without a request about it) | Automatically run the **Chat-upload intake** recipe: save it to the matching project folder, index it with a synopsis, back-link it, log findings. Never ask first. |
 | **Sync — findings** | corrections/decisions/gaps mid-chat | Apply capture rules (finding→note; gap→register; conflict→register) + a dated change-log line. |
 | **Catch-up** | logging has lapsed (several answers, no edits) | Run the **Catch-up recipe** below. |
+| **Schedule (P6 .xer)** | any question about an `.xer` (critical/driving path, what slipped between updates, schedule quality, EV) | Run `scripts/xer_tool.py` (see **P6 schedules** below); never hand-parse the XER. Log findings per the Living-vault rules. |
 | **Audit / health check** | "check the vault," "is everything linked" | Run the **audit script**; fix orphans, unresolved links, hub-index gaps. |
 
 If the user wants a recurring refresh, offer a **scheduled task** running Update on a cadence.
@@ -41,7 +42,7 @@ If the user wants a recurring refresh, offer a **scheduled task** running Update
 ## Workflow (first build)
 **Phase 0 — Intake & scope.** Confirm the source directory (request folder access if needed; never assume the connected folder is the source). Inventory files with sizes/page-counts (`scripts/extract_text.py` prints these). Confirm with the user: vault location (default: a `… Vault/` subfolder in the project folder), depth (*comprehensive* vs *equipment-first* vs *overview*), and for drawing-heavy sets *index+schedules* vs *every sheet*. Inventory first, then ask with numbers in hand.
 
-**Phase 1 — Extract text.** `scripts/extract_text.py <src> <out>` (PDF via pdftotext, XLSX, PPTX, CSV, .msg). Keep extracted text in a scratch folder — it's working data, not part of the vault. Large PDFs: pdftotext, never pure-Python (timeouts).
+**Phase 1 — Extract text.** `scripts/extract_text.py <src> <out>` (PDF via pdftotext, XLSX, PPTX, CSV, .msg, and P6 .xer as a digest of project facts, milestones and the longest path). Keep extracted text in a scratch folder — it's working data, not part of the vault. Large PDFs: pdftotext, never pure-Python (timeouts).
 
 **Phase 2 — Parse structure & shared context.** Parse the drawing index and spec TOC into index notes + the discipline map. Write `PROJECT_FACTS.md` and `STYLE_GUIDE.md` to scratch (see `references/note-templates.md`). **Fixing exact hub names up front is the single most important step for link consistency.**
 
@@ -117,6 +118,31 @@ python scripts/vault_search.py build "<Vault>"                                 #
 - Optional `.vaultidx.json` cache (a couple of MB) is written only if you run `build`; it auto-invalidates when a note changes. Add `.vaultidx.json` to ignore lists — it's a rebuildable cache.
 
 ---
+## P6 schedules (.xer) — `scripts/xer_tool.py`
+Schedule questions are answered from the XER with the bundled tool, not by writing a one-off parser each session. It is **standard-library Python only** (nothing to install, runs in a locked-down sandbox), **read-only** (never modifies the XER), and reads P6's own scheduled dates and calendars, so results line up with what P6 shows. Validated against P6's own longest-path flags on 24 real project schedules (exact match on all).
+
+| Question | Command |
+|---|---|
+| What's in this file / quick facts | `summary <xer>` (data date, forecast finish, counts, upcoming milestones); `projects <xer>` when it holds several |
+| **What is driving the finish?** | `longest-path <xer> [--to CODE] [--near WD]` |
+| **What changed since the last update / vs the baseline?** | `diff <old.xer> <new.xer> [--top N] [--to CODE]` |
+| **New baseline / TIA / mitigation: did the milestone gaps hold?** | `gaps <old.xer> <new.xer> [more.xer or dates.csv ...] --labels "TIA 13,TIA 14" --keys NEA,H2C,PFHO` |
+| Is the schedule technically sound? | `dcma <xer> [--baseline BL.xer] [--details N]` |
+| Cost/hours performance | `earned-value <xer> [--baseline BL.xer]` |
+| One activity's logic, float, drivers | `activity <xer> <code or name text>` |
+| Lists & filters | `activities` (`--status --type --wbs --search --float-lt --longest-path`), `wbs [--depth]`, `relationships [--code]`, `calendars [--holidays YEAR]`, `resources` (incl. over-allocation), `assignments`, `float-paths` |
+| Tables for a workbook | `export <xer> <dir> [--tables TASK,TASKPRED]`, or `--csv <dir>` on any command (then the **xlsx** skill) |
+
+Every command takes `--proj`, `--json`, `--out report.md`, `--csv dir`. "wd" = working days on the activity's calendar.
+
+**Rules that matter:**
+- **Critical path = longest path, not "total float <= 0".** With finish constraints (common on mission-critical jobs) hundreds of activities carry negative float; the driving path is a few dozen. `longest-path` traces driving relationships back from the finish (or `--to` a milestone) using calendar-aware lag/gap math, honors retained logic and P6's SS-lag option, and explains where the path starts (data date, in-progress activity, constraint). Quote it, not a float filter.
+- **Updates are compared, never eyeballed.** For a monthly update, TIA or delay claim, run `diff` against the prior update / baseline. Report finish and milestone movement, longest-path churn, progress achieved vs planned, and **actuals changed after the fact** (rewritten history is a forensic red flag).
+- **Every new baseline, TIA or mitigation gets a gap check.** Run `gaps` with the previous version(s) first and the new one last (or `--focus`). Per phase/ROMP it reports each milestone's delta, the **stagger** between phases (ROMP n vs n-1, same milestone) and the **steps** inside a phase (NEA to H2C to PFHO), then lists the gaps that were squeezed versus the reference and flags any that went to zero or out of sequence (marked new or already so). Calendar days by default, `--workdays` for working days. Dates that exist only in a narrative table or a marked-up image go in as a `Group,Milestone,Date` CSV alongside the XERs. Phase comes from the name ("ROMP 3: ... (NEA)"), else the WBS node ("ROMP 03"), else the code; the milestone type is the abbreviation in brackets. Lead the write-up with the squeezed and flagged gaps, then hand `--csv` output to the **xlsx** skill if a workbook is wanted.
+- **DCMA needs a baseline for #11 and #14.** Without `--baseline`, those two checks use the XER's planned dates and say so in the output; state which basis you used.
+- **Log it.** Material schedule findings (finish movement, a new driver, a failed DCMA check, a rewritten actual) go to the vault per the Living-vault rules; reports go to `Schedule/` and get an index row with a synopsis (data date, finish, headline movement).
+
+---
 ## Chat-upload intake (files dropped into the conversation)
 A file the user drags into the chat is project knowledge the moment it arrives. Chat uploads land in a **temporary session folder** that is wiped later; unless the file is saved into the project and indexed, the next session (or the next person) will never know it existed. Treat every upload as an **Update: new file**, automatically and without asking:
 
@@ -124,7 +150,7 @@ A file the user drags into the chat is project knowledge the moment it arrives. 
 2. **De-duplicate.** Hash the upload (md5/sha1) and compare against same-type files in the likely target folders. If an identical file is already saved, don't copy it; index the existing path.
 3. **Route** it to the matching **project source folder**, never the vault and never the project root, using the folder map in the project `CLAUDE.md`. Typical AEC routing: subcontractor CORs/PCOs to `Subcontracts/<trade>/02 - COs/`; owner PCL packets to `Change Orders/PCL-###…/`; owner letters and notices to `Correspondence/…`; schedules to `Schedule/` (XERs to `Baseline XERs/`); submittals to `Submittals/<spec or vendor>/`; commissioning/QA files to `Cx/<subfolder>/`; drawings and specs to `Drawings & Specs/…`; org charts and rosters to `Team/`. If nothing fits, create a sensibly named subfolder and add it to the folder map.
 4. **Name** it. Keep the original filename when it is descriptive. If it is cryptic (`DP PCO 79.pdf`, `notice[1].pdf`, `Book1.xlsx`), save it under a descriptive name in the folder's existing naming style and record the original name. Never overwrite an existing file; add a suffix such as `(uploaded copy)` or a date.
-5. **Read** enough of it (extraction playbook: pdftotext / xlsx / docx / OCR) to write a synopsis.
+5. **Read** enough of it (extraction playbook: pdftotext / xlsx / docx / OCR; for an `.xer`, `xer_tool.py summary`, plus `diff` against the previous update in `Baseline XERs/`, and `gaps` against the prior version when it is a new baseline, TIA or mitigation) to write a synopsis.
 6. **Index** it in `06 - Documents/Uploaded Files Index.md`, creating that note on first use and linking it from `Source Documents` and `00 - Home`. Each row records: upload date · saved name (plus original name if renamed) · saved path · **synopsis** (what it is, parties, headline figures and dates, status) · links to related notes. A substantial file (multi-tab workbook, long report) also gets a `<File> (contents).md` companion note, the same as generated deliverables.
 7. **Back-link** it. Add a `Source file:` line (path plus `[[Uploaded Files Index]]`) to each related note (email thread, equipment note, register row), so the file can be reached from its topic.
 8. **Log findings** per the Living-vault rules: facts go to notes, gaps and conflicts go to registers, synonyms go to aliases and the glossary. Add a dated `Vault Change Log` entry ("intake: N files").
@@ -294,6 +320,7 @@ After running either script, re-run the audit and confirm 0 unresolved / 0 orpha
 - `scripts/extract_text.py` — batch extraction + inventory. `python extract_text.py <src> <out>`.
 - `scripts/verify_links.py` — link check (note: guard reads / prefer the embedded resilient **audit** above on cloud-synced vaults).
 - `scripts/vault_search.py` — model-free BM25 relevance search over the vault notes (alias/tag-boosted, cited, runs anywhere; no model/deps). `python vault_search.py "<vault>" "<question>" [-k N] [--path P] [--tag T] [--json]`; optional `build "<vault>"` writes a tiny `.vaultidx.json` cache.
+- `scripts/xer_tool.py` — Primavera P6 .xer analysis: summary, activities/WBS/relationships/calendars/resources, **longest (driving) path**, **update/baseline diff**, **milestone gap check** (`gaps`), **DCMA 14-point**, earned value, float paths, CSV export. `python xer_tool.py <command> <file.xer> [...]` (`-h` for all options). Stdlib only, read-only.
 - `scripts/intake_upload.py` — chat-upload intake helper: sha1 de-dup against the target folder, then a no-overwrite copy. `python intake_upload.py <upload_file> <project_root> <target_subfolder> [--name "Descriptive Name.ext"]` → JSON `{"saved", "duplicate_of", "sha1"}`. Stdlib only.
 
 ## Companion skills (bundled)
@@ -315,6 +342,7 @@ This is a one-time recommendation, not a blocker — the embedded copies already
 - **Determinations are multi-source.** Scope / COR / ownership / code calls sweep the owner contract + subcontracts (inclusions *and* "by others" exclusions, every plausibly-responsible trade) + drawings/specs + submittals + change docs + code — reconciled and cited. Never decide from one document.
 - **Organize outputs, don't dump them.** Every generated file lands in the topic subfolder that fits (create one if needed); the project root stays clean; the deliverables index + folder map stay current.
 - **The vault knows its outputs' contents.** Index every generated report/workbook/dashboard with a synopsis of what's inside (structure + headline figures as-of a date), not just its path — so questions get answered from the vault without reopening the file.
+- **Schedules are read with the tool, and the critical path is the longest path.** Use `xer_tool.py` for every .xer question; compare updates with `diff`; never call "total float <= 0" the critical path.
 - **Source-traceable:** every note cites where its facts came from.
 - **Small, linked notes beat big documents:** one idea per note, connected by `[[wikilinks]]`.
 - **Connectivity is a feature:** hubs index children; no orphans; run the hub-indexer + audit after edits.

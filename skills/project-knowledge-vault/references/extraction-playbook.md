@@ -24,6 +24,7 @@ automates most of this; this doc explains the reasoning and the manual fallbacks
 | DOCX | unzip + read `word/document.xml`, or `pdftotext` after converting | — |
 | .MSG (Outlook) | `strings -e l` (UTF-16 body) + `strings` (ASCII) | Pulls subject/sender/body/thread. `extract-msg`/`olefile` if installable. |
 | .EML | parse with Python `email` | — |
+| .XER (Primavera P6) | `scripts/xer_tool.py` | Tab-delimited `%T/%F/%R` tables, usually cp1252. Never hand-parse: `summary` for a synopsis, `longest-path` for the driving path, `diff` against the prior update, `gaps` across baselines/TIAs. `extract_text.py` writes a digest automatically. |
 | Images (jpg/png) | view directly / `tesseract` | — |
 
 ## Index & TOC parsing

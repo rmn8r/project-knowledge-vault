@@ -61,7 +61,8 @@ skills/
     references/                     # vault-structure, note-templates, extraction-playbook, update-workflow
       obsidian-skills/              # the six kepano skills, embedded so this skill is self-contained
     scripts/                        # extract_text.py, verify_links.py, audit_vault.py, link_hubs.py,
-                                    # vault_search.py (model-free BM25 search), intake_upload.py
+                                    # vault_search.py (model-free BM25 search), intake_upload.py,
+                                    # xer_tool.py (P6 .xer schedule analysis)
     assets/                         # graph.json (Obsidian graph color groups)
   obsidian-markdown/  obsidian-bases/  json-canvas/     # vendored from kepano/obsidian-skills (MIT),
   obsidian-cli/       defuddle/        knap/            # installed as first-class sibling skills
@@ -71,12 +72,19 @@ ATTRIBUTION.md
 ```
 
 ## Scripts
-- `scripts/extract_text.py <src_dir> <out_dir>` — batch text extraction + inventory (PDF/XLSX/PPTX/CSV/MSG).
+- `scripts/extract_text.py <src_dir> <out_dir>` — batch text extraction + inventory (PDF/XLSX/PPTX/CSV/MSG, plus a digest of each P6 .xer).
 - `scripts/verify_links.py <vault_dir>` — checks all Obsidian wikilinks resolve.
 - `scripts/audit_vault.py <vault_dir>` — vault health/coverage audit.
 - `scripts/link_hubs.py <vault_dir>` — regenerates hub-note indexes.
 - `scripts/vault_search.py <vault_dir> "<question>"` — model-free BM25 relevance search over
   the notes; see **Relevance search over the notes** above.
+- `scripts/xer_tool.py <command> <file.xer>` — Primavera P6 schedule analysis with no install
+  (standard-library Python, read-only): summary, activity/WBS/logic/calendar/resource listings,
+  the **longest (driving) path** traced through P6's own dates and calendars (matched P6's
+  longest-path flags on all 24 schedules tested), a **milestone `gaps` check** across baselines/TIAs (phase
+  stagger and NEA-H2C-PFHO steps, squeezed or out-of-sequence gaps), an **update/baseline `diff`** (finish and
+  milestone movement, path churn, progress vs plan, rewritten actuals, logic/duration/constraint
+  edits), the **DCMA 14-point** check, earned value, float paths and CSV export.
 - `scripts/intake_upload.py <upload_file> <project_root> <target_subfolder> [--name N]` — saves a
   file dropped into the chat: sha1 de-dup against the target folder, then a no-overwrite copy.
 
